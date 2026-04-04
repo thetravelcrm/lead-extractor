@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Company Lead Extractor</title>
   <style>
-    /* ── Reset & base ─────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { font-size: 15px; }
     body {
@@ -18,110 +17,58 @@
       align-items: center;
       padding: 2rem 1rem;
     }
-
-    /* ── Card container ───────────────────────────────────────────── */
     .card {
       background: #1a1d2e;
       border: 1px solid #2d3148;
       border-radius: 12px;
       width: 100%;
-      max-width: 780px;
+      max-width: 800px;
       padding: 2rem;
       margin-bottom: 1.5rem;
       box-shadow: 0 4px 24px rgba(0,0,0,0.4);
     }
-
-    /* ── Header ───────────────────────────────────────────────────── */
-    header {
-      text-align: center;
-      margin-bottom: 2rem;
-    }
+    header { text-align: center; margin-bottom: 2rem; }
     header h1 {
-      font-size: 1.8rem;
-      font-weight: 700;
+      font-size: 1.8rem; font-weight: 700;
       background: linear-gradient(135deg, #6366f1, #a78bfa);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    header p {
-      color: #94a3b8;
-      margin-top: 0.4rem;
-      font-size: 0.9rem;
-    }
+    header p { color: #94a3b8; margin-top: 0.4rem; font-size: 0.9rem; }
 
-    /* ── Form ─────────────────────────────────────────────────────── */
-    .form-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
+    .source-badge {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      background: #1e3a5f; color: #60a5fa;
+      border-radius: 20px; padding: 0.3rem 0.9rem;
+      font-size: 0.78rem; font-weight: 600; margin-top: 0.6rem;
     }
-    @media (max-width: 560px) {
-      .form-grid { grid-template-columns: 1fr; }
-    }
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-    }
+    .source-badge::before { content: "📍"; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
+    .form-group { display: flex; flex-direction: column; gap: 0.35rem; }
     .form-group.full { grid-column: 1 / -1; }
     label {
-      font-size: 0.82rem;
-      color: #94a3b8;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      font-size: 0.82rem; color: #94a3b8; font-weight: 600;
+      letter-spacing: 0.04em; text-transform: uppercase;
     }
-    input[type="text"],
-    input[type="number"] {
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-radius: 7px;
-      color: #e2e8f0;
-      padding: 0.6rem 0.85rem;
-      font-size: 0.95rem;
-      transition: border-color 0.2s;
-      outline: none;
+    input[type="text"], input[type="number"] {
+      background: #0f1117; border: 1px solid #2d3148; border-radius: 7px;
+      color: #e2e8f0; padding: 0.6rem 0.85rem; font-size: 0.95rem;
+      transition: border-color 0.2s; outline: none;
     }
-    input[type="text"]:focus,
-    input[type="number"]:focus {
-      border-color: #6366f1;
-    }
+    input[type="text"]:focus, input[type="number"]:focus { border-color: #6366f1; }
     input::placeholder { color: #475569; }
 
-    /* ── Sheets toggle ────────────────────────────────────────────── */
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      margin-top: 0.25rem;
-    }
-    .toggle-row input[type="checkbox"] {
-      width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer;
-    }
-    .toggle-row label {
-      text-transform: none;
-      letter-spacing: 0;
-      font-size: 0.88rem;
-      color: #e2e8f0;
-      cursor: pointer;
-    }
+    .toggle-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.25rem; }
+    .toggle-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer; }
+    .toggle-row label { text-transform: none; letter-spacing: 0; font-size: 0.88rem; color: #e2e8f0; cursor: pointer; }
     #sheets-id-group { display: none; }
 
-    /* ── Buttons ──────────────────────────────────────────────────── */
-    .btn-row {
-      display: flex;
-      gap: 0.75rem;
-      margin-top: 1.5rem;
-      flex-wrap: wrap;
-    }
+    .btn-row { display: flex; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap; }
     button {
-      border: none;
-      border-radius: 8px;
-      padding: 0.65rem 1.4rem;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
+      border: none; border-radius: 8px; padding: 0.65rem 1.4rem;
+      font-size: 0.9rem; font-weight: 600; cursor: pointer;
       transition: opacity 0.15s, transform 0.1s;
     }
     button:active { transform: scale(0.97); }
@@ -130,81 +77,50 @@
     #btn-abort    { background: #dc2626; color: #fff; display: none; }
     #btn-download { background: #059669; color: #fff; }
 
-    /* ── Progress bar ─────────────────────────────────────────────── */
-    .progress-wrap {
-      margin-top: 1.5rem;
-      display: none;
-    }
+    .progress-wrap { margin-top: 1.5rem; display: none; }
     .progress-wrap .label-row {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.78rem;
-      color: #94a3b8;
-      margin-bottom: 0.4rem;
+      display: flex; justify-content: space-between;
+      font-size: 0.78rem; color: #94a3b8; margin-bottom: 0.4rem;
     }
-    .progress-track {
-      height: 8px;
-      background: #2d3148;
-      border-radius: 99px;
-      overflow: hidden;
-    }
+    .progress-track { height: 8px; background: #2d3148; border-radius: 99px; overflow: hidden; }
     .progress-fill {
-      height: 100%;
-      width: 0%;
+      height: 100%; width: 0%;
       background: linear-gradient(90deg, #6366f1, #a78bfa);
-      border-radius: 99px;
-      transition: width 0.4s ease;
+      border-radius: 99px; transition: width 0.4s ease;
     }
 
-    /* ── Stats row ────────────────────────────────────────────────── */
-    .stats-row {
-      display: flex;
-      gap: 1rem;
-      margin-top: 1.2rem;
-      flex-wrap: wrap;
-    }
+    .stats-row { display: flex; gap: 1rem; margin-top: 1.2rem; flex-wrap: wrap; }
     .stat-box {
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-radius: 8px;
-      padding: 0.6rem 1rem;
-      flex: 1;
-      min-width: 100px;
-      text-align: center;
+      background: #0f1117; border: 1px solid #2d3148; border-radius: 8px;
+      padding: 0.6rem 1rem; flex: 1; min-width: 100px; text-align: center;
     }
     .stat-box .num { font-size: 1.5rem; font-weight: 700; color: #a78bfa; }
     .stat-box .lbl { font-size: 0.72rem; color: #64748b; text-transform: uppercase; }
 
-    /* ── Log console ──────────────────────────────────────────────── */
-    .log-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.6rem;
-    }
+    /* Output preview table */
+    .output-section { margin-top: 1.5rem; display: none; }
+    .output-section h3 { font-size: 0.82rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.6rem; }
+    .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid #2d3148; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    thead tr { background: #0f1117; }
+    thead th { padding: 0.55rem 0.75rem; text-align: left; color: #64748b; font-weight: 600; white-space: nowrap; border-bottom: 1px solid #2d3148; }
+    tbody tr:nth-child(even) { background: #13162a; }
+    tbody td { padding: 0.5rem 0.75rem; color: #cbd5e1; border-bottom: 1px solid #1e2235; word-break: break-word; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    tbody td.email { color: #4ade80; }
+    .no-rows td { text-align: center; color: #475569; }
+
+    .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
     .log-header span { font-size: 0.78rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
     #btn-clear-log { background: #1e2235; color: #64748b; padding: 0.3rem 0.7rem; font-size: 0.75rem; border-radius: 5px; }
     #console {
-      background: #09090f;
-      border: 1px solid #1e2235;
-      border-radius: 8px;
-      height: 340px;
-      overflow-y: auto;
-      padding: 0.75rem;
-      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-      font-size: 0.8rem;
-      line-height: 1.55;
+      background: #09090f; border: 1px solid #1e2235; border-radius: 8px;
+      height: 320px; overflow-y: auto; padding: 0.75rem;
+      font-family: 'Cascadia Code','Fira Code','Consolas', monospace;
+      font-size: 0.8rem; line-height: 1.55;
     }
     .log-line { display: flex; gap: 0.5rem; }
     .log-ts   { color: #374151; flex-shrink: 0; }
-    .log-badge {
-      font-weight: 700;
-      font-size: 0.72rem;
-      padding: 0.05rem 0.4rem;
-      border-radius: 4px;
-      flex-shrink: 0;
-      align-self: center;
-    }
+    .log-badge { font-weight: 700; font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 4px; flex-shrink: 0; align-self: center; }
     .badge-info    { background: #1e3a5f; color: #60a5fa; }
     .badge-success { background: #14532d; color: #4ade80; }
     .badge-warn    { background: #451a03; color: #fb923c; }
@@ -213,64 +129,54 @@
     .badge-progress{ background: #1e2235; color: #94a3b8; }
     .log-msg { color: #cbd5e1; word-break: break-word; }
 
-    /* ── Footer ───────────────────────────────────────────────────── */
-    footer {
-      text-align: center;
-      color: #334155;
-      font-size: 0.75rem;
-      margin-top: 1rem;
-    }
+    footer { text-align: center; color: #334155; font-size: 0.75rem; margin-top: 1rem; }
   </style>
 </head>
 <body>
 
-  <!-- Header -->
   <header>
     <h1>Company Lead Extractor</h1>
-    <p>Search Google for companies &rarr; extract emails, phones &amp; WhatsApp numbers &rarr; export to CSV</p>
+    <p>Search Google Maps &rarr; visit websites &rarr; extract emails &rarr; export CSV</p>
+    <div class="source-badge">Powered by Google Maps — fewer CAPTCHAs</div>
   </header>
 
-  <!-- ── Input form ── -->
+  <!-- Input Form -->
   <div class="card">
     <div class="form-grid">
-
       <div class="form-group">
         <label for="country">Country</label>
-        <input type="text" id="country" name="country"
-               placeholder="e.g. United Kingdom" required />
+        <input type="text" id="country" placeholder="e.g. United Kingdom" required />
       </div>
-
       <div class="form-group">
         <label for="business_type">Business Type</label>
-        <input type="text" id="business_type" name="business_type"
-               placeholder="e.g. Construction, IT, Tourism" required />
+        <input type="text" id="business_type" placeholder="e.g. Construction, IT, Tourism" required />
       </div>
-
       <div class="form-group">
-        <label for="max_results">Max Results</label>
-        <input type="number" id="max_results" name="max_results"
-               value="50" min="10" max="500" />
+        <label for="max_results">Max Companies</label>
+        <input type="number" id="max_results" value="50" min="5" max="200" />
       </div>
-
       <div class="form-group" style="justify-content:flex-end; padding-bottom:0.1rem;">
         <div class="toggle-row">
-          <input type="checkbox" id="use_sheets" name="use_sheets" />
+          <input type="checkbox" id="use_sheets" />
           <label for="use_sheets">Save to Google Sheets</label>
         </div>
       </div>
-
       <div class="form-group full" id="sheets-id-group">
         <label for="sheets_id">Google Spreadsheet ID</label>
-        <input type="text" id="sheets_id" name="sheets_id"
-               placeholder="Paste the ID from your Sheets URL" />
+        <input type="text" id="sheets_id" placeholder="Paste the ID from your Sheets URL" />
       </div>
-
     </div>
 
-    <!-- Progress bar (hidden until job starts) -->
+    <!-- Output columns info -->
+    <div style="margin-top:1rem; padding:0.6rem 0.9rem; background:#0f1117; border-radius:7px; border:1px solid #2d3148;">
+      <span style="font-size:0.75rem; color:#64748b;">Output columns: </span>
+      <span style="font-size:0.75rem; color:#a78bfa; font-weight:600;">Company Name &nbsp;|&nbsp; Email(s) &nbsp;|&nbsp; Business Type &nbsp;|&nbsp; Website URL &nbsp;|&nbsp; Country &nbsp;|&nbsp; Scraped At</span>
+    </div>
+
+    <!-- Progress bar -->
     <div class="progress-wrap" id="progress-wrap">
       <div class="label-row">
-        <span id="progress-label">Searching...</span>
+        <span id="progress-label">Processing...</span>
         <span id="progress-pct">0%</span>
       </div>
       <div class="progress-track">
@@ -281,16 +187,16 @@
     <!-- Stats -->
     <div class="stats-row" id="stats-row" style="display:none;">
       <div class="stat-box">
-        <div class="num" id="stat-visited">0</div>
-        <div class="lbl">Sites visited</div>
-      </div>
-      <div class="stat-box">
-        <div class="num" id="stat-leads">0</div>
-        <div class="lbl">Leads found</div>
+        <div class="num" id="stat-companies">0</div>
+        <div class="lbl">Companies</div>
       </div>
       <div class="stat-box">
         <div class="num" id="stat-emails">0</div>
-        <div class="lbl">Emails found</div>
+        <div class="lbl">Emails Found</div>
+      </div>
+      <div class="stat-box">
+        <div class="num" id="stat-rate">0%</div>
+        <div class="lbl">Success Rate</div>
       </div>
     </div>
 
@@ -302,9 +208,31 @@
     </div>
   </div>
 
-  <!-- ── Log console ── -->
+  <!-- Live Results Preview -->
   <div class="card">
-    <div class="log-header">
+    <div class="output-section" id="output-section">
+      <h3>Live Results Preview (last 10)</h3>
+      <div class="table-wrap">
+        <table id="results-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Company Name</th>
+              <th>Email(s)</th>
+              <th>Business Type</th>
+              <th>Website</th>
+              <th>Country</th>
+            </tr>
+          </thead>
+          <tbody id="results-body">
+            <tr class="no-rows"><td colspan="6">Results will appear here as they are extracted...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Log console -->
+    <div class="log-header" style="margin-top:1rem;">
       <span>Activity Log</span>
       <button id="btn-clear-log" onclick="clearLog()">Clear</button>
     </div>
@@ -317,23 +245,19 @@
     </div>
   </div>
 
-  <footer>100% free &bull; No paid APIs &bull; Data stays on your machine</footer>
+  <footer>100% free &bull; Google Maps source &bull; No paid APIs &bull; Data stays on your machine</footer>
 
   <script>
-    // ── State ──────────────────────────────────────────────────────
-    let currentJobId   = null;
-    let eventSource    = null;
-    let visitedCount   = 0;
-    let leadCount      = 0;
-    let emailCount     = 0;
+    let currentJobId = null;
+    let eventSource  = null;
+    let companyCount = 0;
+    let emailCount   = 0;
+    let rowIndex     = 0;
 
-    // ── Sheets ID toggle ───────────────────────────────────────────
     document.getElementById('use_sheets').addEventListener('change', function () {
-      document.getElementById('sheets-id-group').style.display =
-        this.checked ? 'flex' : 'none';
+      document.getElementById('sheets-id-group').style.display = this.checked ? 'flex' : 'none';
     });
 
-    // ── Start job ─────────────────────────────────────────────────
     async function startJob() {
       const country      = document.getElementById('country').value.trim();
       const businessType = document.getElementById('business_type').value.trim();
@@ -345,175 +269,157 @@
       if (!businessType) { alert('Please enter a business type.'); return; }
       if (useSheets && !sheetsId) { alert('Please enter a Spreadsheet ID.'); return; }
 
-      // Reset UI
-      resetStats();
-      clearLog();
+      resetUI();
       setRunning(true);
 
-      // Build form data
       const formData = new FormData();
       formData.append('country',       country);
       formData.append('business_type', businessType);
       formData.append('max_results',   maxResults);
-      if (useSheets) {
-        formData.append('use_sheets', 'on');
-        formData.append('sheets_id',  sheetsId);
-      }
+      if (useSheets) { formData.append('use_sheets', 'on'); formData.append('sheets_id', sheetsId); }
 
-      // POST /start
       let resp;
       try {
         resp = await fetch('/start', { method: 'POST', body: formData });
       } catch (err) {
-        appendLog('error', 'Could not reach the server: ' + err.message, '--:--:--');
+        appendLog('error', 'Server unreachable: ' + err.message, '--:--:--');
         setRunning(false);
         return;
       }
 
       const data = await resp.json();
-      if (data.error) {
-        appendLog('error', data.error, '--:--:--');
-        setRunning(false);
-        return;
-      }
+      if (data.error) { appendLog('error', data.error, '--:--:--'); setRunning(false); return; }
 
       currentJobId = data.job_id;
-      appendLog('info', `Job started (ID: ${currentJobId.substring(0, 8)}...)`, currentTime());
+      appendLog('info', `Job started (ID: ${currentJobId.substring(0,8)}...)`, currentTime());
 
-      // Open SSE stream
       eventSource = new EventSource(`/stream/${currentJobId}`);
       eventSource.onmessage = handleSSE;
       eventSource.onerror   = () => {
         appendLog('warn', 'SSE connection lost.', currentTime());
-        eventSource.close();
-        setRunning(false);
+        eventSource.close(); setRunning(false);
       };
     }
 
-    // ── SSE handler ───────────────────────────────────────────────
     function handleSSE(event) {
-      // Ignore heartbeat comments (": heartbeat")
       if (!event.data || event.data.startsWith(':')) return;
-
       let msg;
-      try { msg = JSON.parse(event.data); }
-      catch { return; }
+      try { msg = JSON.parse(event.data); } catch { return; }
 
       appendLog(msg.level, msg.message, msg.ts || currentTime());
 
-      // Update progress bar if data present
-      if (msg.data && msg.data.current !== undefined && msg.data.total) {
+      if (msg.data?.current !== undefined && msg.data?.total) {
         updateProgress(msg.data.current, msg.data.total);
       }
 
-      // Update stats
-      if (msg.data) {
-        if (msg.data.count  !== undefined) leadCount  = msg.data.count;
-        if (msg.data.emails !== undefined) emailCount = msg.data.emails;
+      // Add row to preview table on success
+      if (msg.level === 'success' && msg.message.includes('@')) {
+        const parts = msg.message.trim().split(' — ');
+        const name   = parts[0]?.trim() || '';
+        const emails = parts[1]?.replace(/\d+ email\(s\): /, '').replace(' ...', '').trim() || '';
+        addTableRow(name, emails);
+        companyCount++;
+        emailCount += (emails.match(/@/g) || []).length;
+        updateStats();
       }
-      if (msg.level === 'success') {
-        visitedCount++;
-        leadCount = Math.max(leadCount, visitedCount);
-      }
-      updateStatsDisplay();
 
-      // Job done / error
+      if (msg.data?.count  !== undefined) { companyCount = msg.data.count; }
+      if (msg.data?.emails !== undefined) { emailCount   = msg.data.emails; }
+      updateStats();
+
       if (msg.level === 'done') {
-        if (msg.data) {
-          leadCount  = msg.data.count  ?? leadCount;
-          emailCount = msg.data.emails ?? emailCount;
-          updateStatsDisplay();
-        }
-        eventSource.close();
-        setRunning(false);
+        eventSource.close(); setRunning(false);
         document.getElementById('btn-download').disabled = false;
         updateProgress(1, 1);
+        if (msg.data) { companyCount = msg.data.count ?? companyCount; emailCount = msg.data.emails ?? emailCount; updateStats(); }
       }
-      if (msg.level === 'error') {
-        eventSource.close();
-        setRunning(false);
-      }
+      if (msg.level === 'error') { eventSource.close(); setRunning(false); }
     }
 
-    // ── Abort ──────────────────────────────────────────────────────
+    function addTableRow(name, emails) {
+      const tbody = document.getElementById('results-body');
+      // Remove placeholder
+      const noRow = tbody.querySelector('.no-rows');
+      if (noRow) noRow.remove();
+
+      document.getElementById('output-section').style.display = 'block';
+
+      rowIndex++;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${rowIndex}</td>
+        <td title="${escHtml(name)}">${escHtml(name.substring(0,30))}${name.length>30?'…':''}</td>
+        <td class="email" title="${escHtml(emails)}">${escHtml(emails.substring(0,40))}${emails.length>40?'…':''}</td>
+        <td>—</td>
+        <td>—</td>
+        <td>—</td>`;
+      tbody.appendChild(tr);
+
+      // Keep only last 10 rows
+      while (tbody.rows.length > 10) tbody.deleteRow(0);
+    }
+
     async function abortJob() {
       if (!currentJobId) return;
       await fetch(`/abort/${currentJobId}`, { method: 'POST' });
-      appendLog('warn', 'Abort requested — finishing current site...', currentTime());
+      appendLog('warn', 'Abort requested...', currentTime());
     }
 
-    // ── Download CSV ───────────────────────────────────────────────
     function downloadCSV() {
       if (!currentJobId) return;
       window.location.href = `/download/${currentJobId}`;
     }
 
-    // ── Log helpers ───────────────────────────────────────────────
     function appendLog(level, message, ts) {
-      const console_ = document.getElementById('console');
-      const line  = document.createElement('div');
+      const con = document.getElementById('console');
+      const line = document.createElement('div');
       line.className = 'log-line';
-      const badgeClass = {
-        info: 'badge-info', success: 'badge-success',
-        warn: 'badge-warn', error: 'badge-error',
-        done: 'badge-done', progress: 'badge-progress',
-      }[level] || 'badge-info';
-      line.innerHTML = `
-        <span class="log-ts">${escHtml(ts)}</span>
-        <span class="log-badge ${badgeClass}">${escHtml(level.toUpperCase())}</span>
-        <span class="log-msg">${escHtml(message)}</span>`;
-      console_.appendChild(line);
-      // Auto-scroll to bottom
-      console_.scrollTop = console_.scrollHeight;
+      const badgeClass = { info:'badge-info', success:'badge-success', warn:'badge-warn', error:'badge-error', done:'badge-done', progress:'badge-progress' }[level] || 'badge-info';
+      line.innerHTML = `<span class="log-ts">${escHtml(ts)}</span><span class="log-badge ${badgeClass}">${escHtml(level.toUpperCase())}</span><span class="log-msg">${escHtml(message)}</span>`;
+      con.appendChild(line);
+      con.scrollTop = con.scrollHeight;
     }
 
-    function clearLog() {
-      document.getElementById('console').innerHTML = '';
-    }
+    function clearLog() { document.getElementById('console').innerHTML = ''; }
 
-    function escHtml(str) {
-      return String(str)
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    // ── Progress bar ───────────────────────────────────────────────
     function updateProgress(current, total) {
-      const wrap  = document.getElementById('progress-wrap');
-      const fill  = document.getElementById('progress-fill');
-      const pct   = document.getElementById('progress-pct');
-      const label = document.getElementById('progress-label');
-      wrap.style.display = 'block';
-      const percent = total > 0 ? Math.min(Math.round(current / total * 100), 100) : 0;
-      fill.style.width = percent + '%';
-      pct.textContent  = percent + '%';
-      label.textContent = `${current} / ${total}`;
+      document.getElementById('progress-wrap').style.display = 'block';
+      const pct = total > 0 ? Math.min(Math.round(current / total * 100), 100) : 0;
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-pct').textContent  = pct + '%';
+      document.getElementById('progress-label').textContent = `${current} / ${total} companies`;
     }
 
-    // ── Stats ──────────────────────────────────────────────────────
-    function resetStats() {
-      visitedCount = 0; leadCount = 0; emailCount = 0;
-      updateStatsDisplay();
-      document.getElementById('stats-row').style.display = 'none';
+    function updateStats() {
+      document.getElementById('stats-row').style.display   = 'flex';
+      document.getElementById('stat-companies').textContent = companyCount;
+      document.getElementById('stat-emails').textContent    = emailCount;
+      const rate = companyCount > 0 ? Math.round(emailCount / companyCount * 100) : 0;
+      document.getElementById('stat-rate').textContent      = rate + '%';
+    }
+
+    function resetUI() {
+      companyCount = 0; emailCount = 0; rowIndex = 0;
+      document.getElementById('stats-row').style.display    = 'none';
       document.getElementById('progress-wrap').style.display = 'none';
-      document.getElementById('progress-fill').style.width = '0%';
-    }
-    function updateStatsDisplay() {
-      document.getElementById('stat-visited').textContent = visitedCount;
-      document.getElementById('stat-leads').textContent   = leadCount;
-      document.getElementById('stat-emails').textContent  = emailCount;
-      document.getElementById('stats-row').style.display  = 'flex';
+      document.getElementById('progress-fill').style.width  = '0%';
+      document.getElementById('output-section').style.display = 'none';
+      document.getElementById('results-body').innerHTML =
+        '<tr class="no-rows"><td colspan="6">Results will appear here as they are extracted...</td></tr>';
+      document.getElementById('btn-download').disabled = true;
+      clearLog();
     }
 
-    // ── UI state ───────────────────────────────────────────────────
     function setRunning(running) {
-      document.getElementById('btn-start').disabled    =  running;
+      document.getElementById('btn-start').disabled = running;
       document.getElementById('btn-abort').style.display = running ? 'inline-block' : 'none';
     }
 
-    function currentTime() {
-      return new Date().toTimeString().substring(0,8);
+    function escHtml(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
+
+    function currentTime() { return new Date().toTimeString().substring(0,8); }
   </script>
 </body>
 </html>
