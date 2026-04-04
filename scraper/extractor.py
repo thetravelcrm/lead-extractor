@@ -31,6 +31,16 @@ from config.settings import (
 # Email extraction
 # ---------------------------------------------------------------------------
 
+def extract_emails_from_html(html: str) -> List[str]:
+    """
+    Extract emails from raw HTML by scanning mailto: href attributes.
+    This catches emails that are only in links, not in visible text.
+    e.g. <a href="mailto:info@company.com">Email us</a>
+    """
+    mailto_pattern = re.compile(r'mailto:([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7})', re.IGNORECASE)
+    return list(set(m.lower() for m in mailto_pattern.findall(html)))
+
+
 def extract_emails(text: str) -> List[str]:
     """
     Find all email addresses in the given text.

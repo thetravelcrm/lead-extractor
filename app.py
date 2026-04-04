@@ -31,7 +31,7 @@ from processor.lead_model import Lead
 from processor.cleaner import validate_email, clean_company_name, deduplicate_leads
 from processor.classifier import classify_business
 from scraper.anti_bot import build_session, random_delay, RateLimiter
-from scraper.extractor import extract_emails, extract_company_name
+from scraper.extractor import extract_emails, extract_emails_from_html, extract_company_name
 from scraper.website_visitor import visit_website
 from scraper.google_search import build_query, search_google_maps
 from storage.csv_writer import append_lead_csv, write_leads_csv, get_csv_path
@@ -261,6 +261,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                   data={"current": i, "total": total})
 
             emails = []
+            page_data = None
 
             if website_url:
                 rate_limiter.acquire()
@@ -277,11 +278,14 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     if not name and soup:
                         name = extract_company_name(soup, website_url)
 
-                    raw_emails = extract_emails(page_data["text"])
-                    emails = [e for e in raw_emails if validate_email(e)]
+                    # Extract from visible text AND from mailto: links in HTML
+                    text_emails  = extract_emails(page_data["text"])
+                    mailto_emails = extract_emails_from_html(page_data["html"])
+                    all_raw = list(dict.fromkeys(text_emails + mailto_emails))  # merge, keep order
+                    emails = [e for e in all_raw if validate_email(e)]
 
             # Classify business type
-            page_text = page_data["text"] if website_url and page_data else ""
+            page_text = page_data["text"] if page_data else ""
             final_category = classify_business(name, page_text[:3000], category or business_type)
             clean_name = clean_company_name(name)
 
@@ -289,23 +293,32 @@ def _run_pipeline(job_id: str, params: dict) -> None:
             if not clean_name and emails:
                 clean_name = _company_name_from_email(emails[0])
 
-            lead = Lead(
-                company_name  = clean_name,
-                email         = emails,
-                business_type = final_category,
-                website_url   = website_url,
-                country       = country,
-                source_query  = query,
-            )
-            all_leads.append(lead)
-            append_lead_csv(lead, job_id)
-
-            with _jobs_lock:
-                _jobs[job_id]["lead_count"] = len(all_leads)
-
             if emails:
+                # ── ONE ROW PER EMAIL ────────────────────────────────
+                for email in emails:
+                    local_part = email.split("@")[0].lower()
+                    # Append local part to company name only when it's meaningful
+                    if local_part in _GENERIC_LOCAL:
+                        row_name = clean_name          # info@... → keep plain name
+                    else:
+                        row_name = f"{clean_name} {local_part}".strip() if clean_name else local_part.title()
+
+                    lead = Lead(
+                        company_name  = row_name,
+                        email         = [email],       # single email per row
+                        business_type = final_category,
+                        website_url   = website_url,
+                        country       = country,
+                        source_query  = query,
+                    )
+                    all_leads.append(lead)
+                    append_lead_csv(lead, job_id)
+
+                with _jobs_lock:
+                    _jobs[job_id]["lead_count"] = len(all_leads)
+
                 _emit(job_id, "success",
-                      f"  {clean_name or '(no name)'} — {len(emails)} email(s): {', '.join(emails[:2])}"
+                      f"  {clean_name or '(no name)'} — {len(emails)} row(s): {', '.join(emails[:2])}"
                       + (" ..." if len(emails) > 2 else ""),
                       data={
                           "company":    clean_name,
@@ -316,6 +329,21 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                           "total":      total,
                       })
             else:
+                # No emails — still save the company row (without email)
+                lead = Lead(
+                    company_name  = clean_name,
+                    email         = [],
+                    business_type = final_category,
+                    website_url   = website_url,
+                    country       = country,
+                    source_query  = query,
+                )
+                all_leads.append(lead)
+                append_lead_csv(lead, job_id)
+
+                with _jobs_lock:
+                    _jobs[job_id]["lead_count"] = len(all_leads)
+
                 _emit(job_id, "info", f"  {clean_name or '(no name)'} — no email found",
                       data={"current": i, "total": total})
 

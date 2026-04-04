@@ -49,6 +49,23 @@ def needs_js_render(html: str) -> bool:
         return False
 
 
+def get_direct_contact_urls(base_url: str) -> list:
+    """
+    Return a list of common contact page URLs to try directly,
+    even if they aren't linked from the homepage.
+    e.g. https://company.com/contact, /contact-us, /about, /about-us
+    """
+    from urllib.parse import urlparse
+    parsed = urlparse(base_url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    slugs = [
+        "/contact", "/contact-us", "/contact_us", "/contactus",
+        "/about", "/about-us", "/about_us", "/aboutus",
+        "/reach-us", "/get-in-touch", "/enquiry", "/info",
+    ]
+    return [base + s for s in slugs]
+
+
 def get_contact_page_urls(base_url: str, soup: BeautifulSoup) -> list:
     """
     Scan the page for internal links that likely lead to a contact or about
@@ -181,16 +198,40 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
         pass
 
     # ---- Step 4: Fetch contact/about sub-pages ----
+    visited_sub = set()
+
+    # 4a. Links found on the main page
     if main_soup:
-        contact_urls = get_contact_page_urls(url, main_soup)
-        for sub_url in contact_urls[:2]:  # limit to 2 extra pages
+        for sub_url in get_contact_page_urls(url, main_soup)[:3]:
+            if sub_url in visited_sub:
+                continue
+            visited_sub.add(sub_url)
             try:
                 sub_resp = session.get(sub_url, timeout=REQUEST_TIMEOUT, verify=False)
                 if sub_resp.status_code == 200:
                     html_parts.append(sub_resp.text)
-                random_delay((0.5, 1.5))   # short polite delay
+                random_delay((0.5, 1.0))
             except Exception:
                 continue
+
+    # 4b. Probe common contact URLs directly (catches sites where contact page
+    #     is not linked on the homepage)
+    direct_urls = get_direct_contact_urls(url)
+    probed = 0
+    for sub_url in direct_urls:
+        if probed >= 3:
+            break
+        if sub_url in visited_sub:
+            continue
+        visited_sub.add(sub_url)
+        try:
+            sub_resp = session.get(sub_url, timeout=8, verify=False, allow_redirects=True)
+            if sub_resp.status_code == 200 and len(sub_resp.text) > 200:
+                html_parts.append(sub_resp.text)
+                probed += 1
+            random_delay((0.3, 0.8))
+        except Exception:
+            continue
 
     # ---- Step 5: Build combined output ----
     combined_html = "\n".join(html_parts)
