@@ -57,6 +57,7 @@ def index():
 @app.route("/start", methods=["POST"])
 def start_job():
     country       = request.form.get("country", "").strip()
+    city          = request.form.get("city", "").strip()
     business_type = request.form.get("business_type", "").strip()
     max_results   = request.form.get("max_results", "50").strip()
     use_sheets    = request.form.get("use_sheets") == "on"
@@ -85,6 +86,7 @@ def start_job():
     job_id = str(uuid.uuid4())
     params = {
         "country":       country,
+        "city":          city,
         "business_type": business_type,
         "max_results":   max_results,
         "use_sheets":    use_sheets,
@@ -162,6 +164,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
       Stage 4 — Save CSV + optional Sheets
     """
     country       = params["country"]
+    city          = params.get("city", "")
     business_type = params["business_type"]
     max_results   = params["max_results"]
     use_sheets    = params["use_sheets"]
@@ -175,7 +178,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
         # ----------------------------------------------------------------
         # STAGE 1 — Google Maps
         # ----------------------------------------------------------------
-        query = build_query(country, business_type)
+        query = build_query(country, business_type, city)
         _emit(job_id, "info", f"Searching Google Maps: {query}")
 
         loop = asyncio.new_event_loop()
