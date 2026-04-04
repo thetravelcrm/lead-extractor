@@ -1,0 +1,17 @@
+# Never include these in the Docker image
+.git/
+.gitignore
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+credentials.json
+*.csv
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
