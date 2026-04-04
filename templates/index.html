@@ -29,7 +29,6 @@
       background: #1e3a5f; color: #60a5fa; border-radius: 20px;
       padding: 0.3rem 0.9rem; font-size: 0.78rem; font-weight: 600; margin-top: 0.6rem;
     }
-
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 580px) { .form-grid { grid-template-columns: 1fr; } }
     .form-group { display: flex; flex-direction: column; gap: 0.35rem; }
@@ -38,45 +37,25 @@
       font-size: 0.8rem; color: #94a3b8; font-weight: 600;
       letter-spacing: 0.04em; text-transform: uppercase;
     }
-    .optional-tag {
-      font-size: 0.68rem; color: #475569; font-weight: 400;
-      text-transform: none; margin-left: 0.3rem;
-    }
-    input[type="text"], input[type="number"], select {
+    .optional-tag { font-size: 0.68rem; color: #475569; font-weight: 400; text-transform: none; margin-left: 0.3rem; }
+    input[type="text"], input[type="number"] {
       background: #0f1117; border: 1px solid #2d3148; border-radius: 7px;
       color: #e2e8f0; padding: 0.6rem 0.85rem; font-size: 0.93rem;
       transition: border-color 0.2s; outline: none; width: 100%;
-      appearance: none; -webkit-appearance: none;
     }
-    select {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: right 0.8rem center;
-      padding-right: 2.2rem; cursor: pointer;
-    }
-    input:focus, select:focus { border-color: #6366f1; }
+    input:focus { border-color: #6366f1; }
     input::placeholder { color: #475569; }
-    option { background: #1a1d2e; }
+    /* datalist-backed country input */
+    #country-input { width: 100%; }
 
-    /* Country search inside select — custom filter */
-    .select-wrapper { position: relative; }
-    #country-search {
-      background: #0f1117; border: 1px solid #2d3148; border-radius: 7px 7px 0 0;
-      color: #e2e8f0; padding: 0.55rem 0.85rem; font-size: 0.88rem;
-      width: 100%; outline: none; border-bottom: none;
-    }
-    #country-select { border-radius: 0 0 7px 7px; border-top: none; height: 42px; }
-    #country-search:focus + #country-select, #country-select:focus { border-color: #6366f1; }
-    #country-search:focus { border-color: #6366f1; }
-
-    .toggle-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.25rem; }
+    .toggle-row { display: flex; align-items: center; gap: 0.6rem; }
     .toggle-row input[type="checkbox"] { width:16px; height:16px; accent-color:#6366f1; cursor:pointer; }
     .toggle-row label { text-transform:none; letter-spacing:0; font-size:0.88rem; color:#e2e8f0; cursor:pointer; }
     #sheets-id-group { display: none; }
 
     .output-info {
       margin-top: 1rem; padding: 0.6rem 0.9rem;
-      background: #0f1117; border-radius: 7px; border: 1px solid #2d3148;
-      font-size: 0.75rem;
+      background: #0f1117; border-radius: 7px; border: 1px solid #2d3148; font-size: 0.75rem;
     }
     .output-info span:first-child { color: #64748b; }
     .output-info span:last-child  { color: #a78bfa; font-weight: 600; }
@@ -104,7 +83,6 @@
       background: linear-gradient(90deg, #6366f1, #a78bfa);
       border-radius: 99px; transition: width 0.4s ease;
     }
-
     .stats-row { display: flex; gap: 1rem; margin-top: 1.2rem; flex-wrap: wrap; }
     .stat-box {
       background: #0f1117; border: 1px solid #2d3148; border-radius: 8px;
@@ -113,16 +91,16 @@
     .stat-box .num { font-size: 1.5rem; font-weight: 700; color: #a78bfa; }
     .stat-box .lbl { font-size: 0.7rem; color: #64748b; text-transform: uppercase; }
 
-    .output-section { display: none; margin-bottom: 0.5rem; }
+    .output-section { display: none; margin-bottom: 1rem; }
     .output-section h3 { font-size: 0.78rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.6rem; }
     .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid #2d3148; }
     table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
     thead tr { background: #0f1117; }
     thead th { padding: 0.55rem 0.75rem; text-align: left; color: #64748b; font-weight: 600; white-space: nowrap; border-bottom: 1px solid #2d3148; }
     tbody tr:nth-child(even) { background: #13162a; }
-    tbody td { padding: 0.5rem 0.75rem; color: #cbd5e1; border-bottom: 1px solid #1e2235; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+    tbody td { padding: 0.5rem 0.75rem; color: #cbd5e1; border-bottom: 1px solid #1e2235; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
     tbody td.email { color: #4ade80; }
-    .no-rows td { text-align: center; color: #475569; white-space: normal; }
+    .no-rows td { text-align: center; color: #475569; white-space: normal; max-width: none; }
 
     .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
     .log-header span { font-size: 0.78rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -143,7 +121,6 @@
     .badge-done    { background:#2e1065; color:#c084fc; }
     .badge-progress{ background:#1e2235; color:#94a3b8; }
     .log-msg { color:#cbd5e1; word-break:break-word; }
-
     footer { text-align:center; color:#334155; font-size:0.75rem; margin-top:1rem; }
   </style>
 </head>
@@ -151,25 +128,26 @@
 
 <header>
   <h1>Company Lead Extractor</h1>
-  <p>Google Maps &rarr; visit websites &rarr; extract emails &rarr; export CSV</p>
-  <div class="source-badge">📍 Powered by Google Maps — no CAPTCHA issues</div>
+  <p>Google Maps → visit websites → extract emails → export CSV</p>
+  <div class="source-badge">📍 Powered by Google Maps — fewer CAPTCHAs</div>
 </header>
 
-<!-- ── Form ── -->
+<!-- Form -->
 <div class="card">
   <div class="form-grid">
 
-    <!-- Country dropdown with search -->
+    <!-- Country — native datalist (closes on selection, searchable) -->
     <div class="form-group">
-      <label for="country-select">Country</label>
-      <input type="text" id="country-search" placeholder="Type to filter countries..." autocomplete="off" />
-      <select id="country-select" size="1"></select>
+      <label for="country-input">Country</label>
+      <input type="text" id="country-input" list="countries-list"
+             placeholder="Type or select a country..." autocomplete="off" value="United Arab Emirates" />
+      <datalist id="countries-list"></datalist>
     </div>
 
     <!-- City (optional) -->
     <div class="form-group">
-      <label for="city">City <span class="optional-tag">(optional — leave empty for whole country)</span></label>
-      <input type="text" id="city" placeholder="e.g. Dubai, London, Berlin" />
+      <label for="city">City <span class="optional-tag">(optional)</span></label>
+      <input type="text" id="city" placeholder="e.g. Dubai, London — leave empty for whole country" />
     </div>
 
     <!-- Business type -->
@@ -198,13 +176,13 @@
 
   </div>
 
-  <!-- Output columns -->
+  <!-- Output columns hint -->
   <div class="output-info">
     <span>Output: </span>
     <span>Company Name &nbsp;|&nbsp; Email(s) &nbsp;|&nbsp; Business Type &nbsp;|&nbsp; Website URL &nbsp;|&nbsp; Country &nbsp;|&nbsp; Scraped At</span>
   </div>
 
-  <!-- Progress bar -->
+  <!-- Progress -->
   <div class="progress-wrap" id="progress-wrap">
     <div class="label-row">
       <span id="progress-label">Processing...</span>
@@ -228,15 +206,17 @@
   </div>
 </div>
 
-<!-- ── Results + Log ── -->
+<!-- Results + Log -->
 <div class="card">
   <div class="output-section" id="output-section">
-    <h3>Live Results Preview</h3>
+    <h3>Live Results (companies with emails)</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>#</th><th>Company Name</th><th>Email(s)</th><th>Business Type</th><th>Website</th></tr></thead>
+        <thead>
+          <tr><th>#</th><th>Company Name</th><th>Email(s)</th><th>Business Type</th><th>Website</th></tr>
+        </thead>
         <tbody id="results-body">
-          <tr class="no-rows"><td colspan="5">Results will appear here...</td></tr>
+          <tr class="no-rows"><td colspan="5">Results will appear here as emails are found...</td></tr>
         </tbody>
       </table>
     </div>
@@ -250,15 +230,15 @@
     <div class="log-line">
       <span class="log-ts">--:--:--</span>
       <span class="log-badge badge-info">INFO</span>
-      <span class="log-msg">Select a country, enter business type, and click "Start Extraction".</span>
+      <span class="log-msg">Select a country, enter a business type, and click "Start Extraction".</span>
     </div>
   </div>
 </div>
 
-<footer>100% free &bull; Google Maps source &bull; No paid APIs</footer>
+<footer>100% free · Google Maps · No paid APIs</footer>
 
 <script>
-// ── Country list ──────────────────────────────────────────────────────────
+// ── Countries (datalist) ──────────────────────────────────────────────────
 const COUNTRIES = [
   "Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda",
   "Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain",
@@ -293,28 +273,12 @@ const COUNTRIES = [
   "Zambia","Zimbabwe"
 ];
 
-// Populate select
-const sel = document.getElementById('country-select');
-function populateCountries(filter) {
-  sel.innerHTML = '';
-  const list = filter
-    ? COUNTRIES.filter(c => c.toLowerCase().includes(filter.toLowerCase()))
-    : COUNTRIES;
-  list.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = opt.textContent = c;
-    sel.appendChild(opt);
-  });
-  // Default select UAE if no filter
-  if (!filter) {
-    const uae = [...sel.options].find(o => o.value === 'United Arab Emirates');
-    if (uae) uae.selected = true;
-  }
-}
-populateCountries('');
-
-document.getElementById('country-search').addEventListener('input', function() {
-  populateCountries(this.value);
+// Populate datalist once
+const dl = document.getElementById('countries-list');
+COUNTRIES.forEach(c => {
+  const opt = document.createElement('option');
+  opt.value = c;
+  dl.appendChild(opt);
 });
 
 // ── Sheets toggle ─────────────────────────────────────────────────────────
@@ -326,16 +290,16 @@ document.getElementById('use_sheets').addEventListener('change', function() {
 let currentJobId = null, eventSource = null;
 let companyCount = 0, emailCount = 0, rowIndex = 0;
 
-// ── Start ─────────────────────────────────────────────────────────────────
+// ── Start job ─────────────────────────────────────────────────────────────
 async function startJob() {
-  const country      = document.getElementById('country-select').value;
+  const country      = document.getElementById('country-input').value.trim();
   const city         = document.getElementById('city').value.trim();
   const businessType = document.getElementById('business_type').value.trim();
   const maxResults   = document.getElementById('max_results').value;
   const useSheets    = document.getElementById('use_sheets').checked;
   const sheetsId     = document.getElementById('sheets_id').value.trim();
 
-  if (!country)      { alert('Please select a country.'); return; }
+  if (!country)      { alert('Please select or type a country.'); return; }
   if (!businessType) { alert('Please enter a business type.'); return; }
   if (useSheets && !sheetsId) { alert('Please enter a Spreadsheet ID.'); return; }
 
@@ -349,7 +313,7 @@ async function startJob() {
   if (useSheets) { fd.append('use_sheets','on'); fd.append('sheets_id', sheetsId); }
 
   let resp;
-  try { resp = await fetch('/start', { method:'POST', body:fd }); }
+  try { resp = await fetch('/start', { method:'POST', body: fd }); }
   catch(err) { appendLog('error','Server unreachable: '+err.message,'--:--:--'); setRunning(false); return; }
 
   const data = await resp.json();
@@ -361,7 +325,10 @@ async function startJob() {
 
   eventSource = new EventSource(`/stream/${currentJobId}`);
   eventSource.onmessage = handleSSE;
-  eventSource.onerror   = () => { appendLog('warn','SSE lost.',currentTime()); eventSource.close(); setRunning(false); };
+  eventSource.onerror   = () => {
+    appendLog('warn','SSE connection lost.',currentTime());
+    eventSource.close(); setRunning(false);
+  };
 }
 
 // ── SSE handler ───────────────────────────────────────────────────────────
@@ -371,64 +338,78 @@ function handleSSE(e) {
 
   appendLog(msg.level, msg.message, msg.ts || currentTime());
 
+  // Update progress bar
   if (msg.data?.current !== undefined && msg.data?.total)
     updateProgress(msg.data.current, msg.data.total);
 
-  if (msg.level === 'success' && msg.message.includes('@')) {
-    const parts  = msg.message.trim().split(' — ');
-    const name   = (parts[0] || '').replace(/^\s+/, '');
-    const emails = (parts[1] || '').replace(/\d+ email\(s\): /, '').replace(' ...','').trim();
-    addTableRow(name, emails);
+  // SUCCESS with structured data → add table row and update stats accurately
+  if (msg.level === 'success' && msg.data?.emails?.length) {
+    const emails   = msg.data.emails;      // real array from backend
+    const company  = msg.data.company || '';
+    const category = msg.data.category || '';
+    const website  = msg.data.website  || '';
+
+    addTableRow(company, emails, category, website);
+
     companyCount++;
-    emailCount += (emails.match(/@/g)||[]).length;
+    emailCount += emails.length;           // exact count, not guessed
     updateStats();
   }
 
-  if (msg.data?.count  !== undefined) companyCount = msg.data.count;
-  if (msg.data?.emails !== undefined) emailCount   = msg.data.emails;
-  updateStats();
-
+  // Done event — use final totals from backend
   if (msg.level === 'done') {
+    if (msg.data?.count  !== undefined) companyCount = msg.data.count;
+    if (msg.data?.emails !== undefined) emailCount   = msg.data.emails;
+    updateStats();
+    updateProgress(1, 1);
     eventSource.close(); setRunning(false);
     document.getElementById('btn-download').disabled = false;
-    updateProgress(1,1);
-    if (msg.data) { companyCount = msg.data.count??companyCount; emailCount = msg.data.emails??emailCount; updateStats(); }
   }
+
   if (msg.level === 'error') { eventSource.close(); setRunning(false); }
 }
 
-// ── Table row ─────────────────────────────────────────────────────────────
-function addTableRow(name, emails) {
+// ── Table ─────────────────────────────────────────────────────────────────
+function addTableRow(company, emails, category, website) {
   const tbody = document.getElementById('results-body');
   const noRow = tbody.querySelector('.no-rows');
   if (noRow) noRow.remove();
   document.getElementById('output-section').style.display = 'block';
+
   rowIndex++;
+  const emailStr = emails.join(', ');
+  const domain   = website ? (new URL(website).hostname.replace('www.','')) : '—';
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td>${rowIndex}</td>
-    <td title="${escHtml(name)}">${escHtml(name.substring(0,28))}${name.length>28?'…':''}</td>
-    <td class="email" title="${escHtml(emails)}">${escHtml(emails.substring(0,38))}${emails.length>38?'…':''}</td>
-    <td>—</td>
-    <td>—</td>`;
+    <td title="${escHtml(company)}">${escHtml(company.substring(0,28))}${company.length>28?'…':''}</td>
+    <td class="email" title="${escHtml(emailStr)}">${escHtml(emailStr.substring(0,40))}${emailStr.length>40?'…':''}</td>
+    <td title="${escHtml(category)}">${escHtml(category.substring(0,22))}${category.length>22?'…':''}</td>
+    <td title="${escHtml(website)}">${escHtml(domain)}</td>`;
   tbody.appendChild(tr);
-  while (tbody.rows.length > 12) tbody.deleteRow(0);
+  // Keep last 15 rows
+  while (tbody.rows.length > 15) tbody.deleteRow(0);
 }
 
 async function abortJob() {
   if (!currentJobId) return;
-  await fetch(`/abort/${currentJobId}`, {method:'POST'});
+  await fetch(`/abort/${currentJobId}`, { method:'POST' });
   appendLog('warn','Abort requested...',currentTime());
 }
 function downloadCSV() { if (currentJobId) window.location.href = `/download/${currentJobId}`; }
 
 // ── Log ───────────────────────────────────────────────────────────────────
 function appendLog(level, message, ts) {
-  const con = document.getElementById('console');
+  const con  = document.getElementById('console');
   const line = document.createElement('div');
   line.className = 'log-line';
-  const bc = {info:'badge-info',success:'badge-success',warn:'badge-warn',error:'badge-error',done:'badge-done',progress:'badge-progress'}[level]||'badge-info';
-  line.innerHTML = `<span class="log-ts">${escHtml(ts)}</span><span class="log-badge ${bc}">${escHtml(level.toUpperCase())}</span><span class="log-msg">${escHtml(message)}</span>`;
+  const bc = {
+    info:'badge-info', success:'badge-success', warn:'badge-warn',
+    error:'badge-error', done:'badge-done', progress:'badge-progress'
+  }[level] || 'badge-info';
+  line.innerHTML = `<span class="log-ts">${escHtml(ts)}</span>`
+    + `<span class="log-badge ${bc}">${escHtml(level.toUpperCase())}</span>`
+    + `<span class="log-msg">${escHtml(message)}</span>`;
   con.appendChild(line);
   con.scrollTop = con.scrollHeight;
 }
@@ -437,34 +418,41 @@ function clearLog() { document.getElementById('console').innerHTML = ''; }
 // ── Progress / stats ──────────────────────────────────────────────────────
 function updateProgress(cur, tot) {
   document.getElementById('progress-wrap').style.display = 'block';
-  const pct = tot > 0 ? Math.min(Math.round(cur/tot*100),100) : 0;
-  document.getElementById('progress-fill').style.width = pct+'%';
-  document.getElementById('progress-pct').textContent   = pct+'%';
+  const pct = tot > 0 ? Math.min(Math.round(cur / tot * 100), 100) : 0;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent   = pct + '%';
   document.getElementById('progress-label').textContent = `${cur} / ${tot} companies`;
 }
+
 function updateStats() {
-  document.getElementById('stats-row').style.display     = 'flex';
-  document.getElementById('stat-companies').textContent  = companyCount;
-  document.getElementById('stat-emails').textContent     = emailCount;
-  const rate = companyCount > 0 ? Math.round(emailCount/companyCount*100) : 0;
-  document.getElementById('stat-rate').textContent       = rate+'%';
+  document.getElementById('stats-row').style.display    = 'flex';
+  document.getElementById('stat-companies').textContent = companyCount;
+  document.getElementById('stat-emails').textContent    = emailCount;
+  // Success rate = companies WITH at least 1 email / total visited
+  const rate = companyCount > 0 ? Math.round((rowIndex / companyCount) * 100) : 0;
+  document.getElementById('stat-rate').textContent = Math.min(rate, 100) + '%';
 }
+
 function resetUI() {
-  companyCount=0; emailCount=0; rowIndex=0;
-  document.getElementById('stats-row').style.display     = 'none';
-  document.getElementById('progress-wrap').style.display = 'none';
-  document.getElementById('progress-fill').style.width   = '0%';
-  document.getElementById('output-section').style.display= 'none';
-  document.getElementById('results-body').innerHTML      = '<tr class="no-rows"><td colspan="5">Results will appear here...</td></tr>';
-  document.getElementById('btn-download').disabled       = true;
+  companyCount = 0; emailCount = 0; rowIndex = 0;
+  ['stats-row','progress-wrap','output-section'].forEach(id =>
+    document.getElementById(id).style.display = 'none');
+  document.getElementById('progress-fill').style.width = '0%';
+  document.getElementById('results-body').innerHTML =
+    '<tr class="no-rows"><td colspan="5">Results will appear here as emails are found...</td></tr>';
+  document.getElementById('btn-download').disabled = true;
   clearLog();
 }
+
 function setRunning(r) {
   document.getElementById('btn-start').disabled         = r;
   document.getElementById('btn-abort').style.display    = r ? 'inline-block' : 'none';
 }
+
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function currentTime() { return new Date().toTimeString().substring(0,8); }
 </script>

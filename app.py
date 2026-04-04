@@ -148,11 +148,50 @@ def status(job_id):
 
 
 # ---------------------------------------------------------------------------
-# Pipeline
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _emit(job_id, level, message, data=None):
     emit(job_id, level, message, data)
+
+
+# Generic email local-parts that don't represent a company name
+_GENERIC_LOCAL = frozenset({
+    "info", "contact", "hello", "admin", "support", "sales", "mail",
+    "enquiry", "enquiries", "office", "team", "help", "marketing",
+    "service", "services", "manager", "reception", "accounts", "billing",
+    "hr", "jobs", "careers", "media", "pr", "news", "web", "website",
+    "hello", "hi", "general", "query", "queries", "feedback",
+})
+
+
+def _company_name_from_email(email: str) -> str:
+    """
+    Derive a company name from an email address when no other name is found.
+
+    Rules:
+    - Generic local part (info@, contact@, etc.) → use domain name
+      e.g.  info@abccorp.com       → "Abccorp"
+    - Specific local part           → use local part
+      e.g.  abccorp@gmail.com      → "Abccorp"
+    """
+    try:
+        local, domain = email.lower().split("@", 1)
+        if local in _GENERIC_LOCAL:
+            # Use domain without TLD
+            name = domain.rsplit(".", 1)[0]
+        else:
+            name = local
+        # Clean separators and title-case
+        name = name.replace("-", " ").replace("_", " ").replace(".", " ")
+        return name.strip().title()
+    except Exception:
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
 
 
 def _run_pipeline(job_id: str, params: dict) -> None:
@@ -246,6 +285,10 @@ def _run_pipeline(job_id: str, params: dict) -> None:
             final_category = classify_business(name, page_text[:3000], category or business_type)
             clean_name = clean_company_name(name)
 
+            # Derive company name from email if still missing
+            if not clean_name and emails:
+                clean_name = _company_name_from_email(emails[0])
+
             lead = Lead(
                 company_name  = clean_name,
                 email         = emails,
@@ -262,10 +305,19 @@ def _run_pipeline(job_id: str, params: dict) -> None:
 
             if emails:
                 _emit(job_id, "success",
-                      f"  {clean_name} — {len(emails)} email(s): {', '.join(emails[:2])}"
-                      + (" ..." if len(emails) > 2 else ""))
+                      f"  {clean_name or '(no name)'} — {len(emails)} email(s): {', '.join(emails[:2])}"
+                      + (" ..." if len(emails) > 2 else ""),
+                      data={
+                          "company":    clean_name,
+                          "emails":     emails,
+                          "category":   final_category,
+                          "website":    website_url,
+                          "current":    i,
+                          "total":      total,
+                      })
             else:
-                _emit(job_id, "info", f"  {clean_name} — no email found")
+                _emit(job_id, "info", f"  {clean_name or '(no name)'} — no email found",
+                      data={"current": i, "total": total})
 
             random_delay((1.0, 2.5))
 
