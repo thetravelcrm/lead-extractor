@@ -144,7 +144,23 @@ def status(job_id):
     job = _jobs.get(job_id)
     if not job:
         return jsonify({"error": "Unknown job ID"}), 404
-    return jsonify(job)
+    # Also tell the frontend whether a CSV file exists to download
+    csv_ready = os.path.isfile(get_csv_path(job_id))
+    return jsonify({**job, "csv_ready": csv_ready})
+
+
+@app.route("/resume/<job_id>")
+def resume(job_id):
+    """
+    Called when the user clicks Resume after an SSE drop.
+    Returns the current job status so the frontend knows whether to
+    re-open the stream (still running) or just enable Download (done/cancelled).
+    """
+    job = _jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found. It may have expired (server restarted)."}), 404
+    csv_ready = os.path.isfile(get_csv_path(job_id))
+    return jsonify({**job, "csv_ready": csv_ready})
 
 
 # ---------------------------------------------------------------------------
@@ -305,9 +321,10 @@ def _run_pipeline(job_id: str, params: dict) -> None:
 
                     lead = Lead(
                         company_name  = row_name,
-                        email         = [email],       # single email per row
+                        email         = [email],
                         business_type = final_category,
                         website_url   = website_url,
+                        city          = city,
                         country       = country,
                         source_query  = query,
                     )
@@ -325,6 +342,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                           "emails":     emails,
                           "category":   final_category,
                           "website":    website_url,
+                          "city":       city,
                           "current":    i,
                           "total":      total,
                       })
@@ -335,6 +353,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     email         = [],
                     business_type = final_category,
                     website_url   = website_url,
+                    city          = city,
                     country       = country,
                     source_query  = query,
                 )

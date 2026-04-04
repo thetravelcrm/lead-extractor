@@ -14,7 +14,7 @@
     }
     .card {
       background: #1a1d2e; border: 1px solid #2d3148; border-radius: 12px;
-      width: 100%; max-width: 820px; padding: 2rem; margin-bottom: 1.5rem;
+      width: 100%; max-width: 860px; padding: 2rem; margin-bottom: 1.5rem;
       box-shadow: 0 4px 24px rgba(0,0,0,0.4);
     }
     header { text-align: center; margin-bottom: 2rem; }
@@ -30,13 +30,10 @@
       padding: 0.3rem 0.9rem; font-size: 0.78rem; font-weight: 600; margin-top: 0.6rem;
     }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 580px) { .form-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 580px) { .form-grid { grid-column: 1fr; } }
     .form-group { display: flex; flex-direction: column; gap: 0.35rem; }
     .form-group.full { grid-column: 1 / -1; }
-    label {
-      font-size: 0.8rem; color: #94a3b8; font-weight: 600;
-      letter-spacing: 0.04em; text-transform: uppercase;
-    }
+    label { font-size: 0.8rem; color: #94a3b8; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
     .optional-tag { font-size: 0.68rem; color: #475569; font-weight: 400; text-transform: none; margin-left: 0.3rem; }
     input[type="text"], input[type="number"] {
       background: #0f1117; border: 1px solid #2d3148; border-radius: 7px;
@@ -45,8 +42,6 @@
     }
     input:focus { border-color: #6366f1; }
     input::placeholder { color: #475569; }
-    /* datalist-backed country input */
-    #country-input { width: 100%; }
 
     .toggle-row { display: flex; align-items: center; gap: 0.6rem; }
     .toggle-row input[type="checkbox"] { width:16px; height:16px; accent-color:#6366f1; cursor:pointer; }
@@ -60,6 +55,16 @@
     .output-info span:first-child { color: #64748b; }
     .output-info span:last-child  { color: #a78bfa; font-weight: 600; }
 
+    /* Resume banner */
+    #resume-banner {
+      display: none; margin-top: 1rem;
+      background: #1c2a1e; border: 1px solid #166534; border-radius: 8px;
+      padding: 0.7rem 1rem; display: none; align-items: center;
+      justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    }
+    #resume-banner span { font-size: 0.85rem; color: #86efac; }
+    #resume-banner small { font-size: 0.72rem; color: #4ade80; opacity: 0.7; display: block; }
+
     .btn-row { display: flex; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap; }
     button {
       border: none; border-radius: 8px; padding: 0.65rem 1.4rem;
@@ -71,6 +76,7 @@
     #btn-start    { background: linear-gradient(135deg, #6366f1, #818cf8); color: #fff; }
     #btn-abort    { background: #dc2626; color: #fff; display: none; }
     #btn-download { background: #059669; color: #fff; }
+    #btn-resume   { background: #0e7490; color: #fff; }
 
     .progress-wrap { margin-top: 1.5rem; display: none; }
     .progress-wrap .label-row {
@@ -98,8 +104,9 @@
     thead tr { background: #0f1117; }
     thead th { padding: 0.55rem 0.75rem; text-align: left; color: #64748b; font-weight: 600; white-space: nowrap; border-bottom: 1px solid #2d3148; }
     tbody tr:nth-child(even) { background: #13162a; }
-    tbody td { padding: 0.5rem 0.75rem; color: #cbd5e1; border-bottom: 1px solid #1e2235; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+    tbody td { padding: 0.5rem 0.75rem; color: #cbd5e1; border-bottom: 1px solid #1e2235; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
     tbody td.email { color: #4ade80; }
+    tbody td.city  { color: #67e8f9; }
     .no-rows td { text-align: center; color: #475569; white-space: normal; max-width: none; }
 
     .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
@@ -134,9 +141,21 @@
 
 <!-- Form -->
 <div class="card">
-  <div class="form-grid">
 
-    <!-- Country — native datalist (closes on selection, searchable) -->
+  <!-- Resume banner (shown when a previous job exists) -->
+  <div id="resume-banner">
+    <div>
+      <span>Previous job found</span>
+      <small id="resume-job-label"></small>
+    </div>
+    <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+      <button id="btn-resume" onclick="resumeJob()">Resume / Reconnect</button>
+      <button style="background:#1e2235;color:#94a3b8;font-size:0.8rem;" onclick="clearSavedJob()">Dismiss</button>
+    </div>
+  </div>
+
+  <div class="form-grid" style="margin-top:1rem;">
+
     <div class="form-group">
       <label for="country-input">Country</label>
       <input type="text" id="country-input" list="countries-list"
@@ -144,25 +163,21 @@
       <datalist id="countries-list"></datalist>
     </div>
 
-    <!-- City (optional) -->
     <div class="form-group">
       <label for="city">City <span class="optional-tag">(optional)</span></label>
       <input type="text" id="city" placeholder="e.g. Dubai, London — leave empty for whole country" />
     </div>
 
-    <!-- Business type -->
     <div class="form-group">
       <label for="business_type">Business Type</label>
       <input type="text" id="business_type" placeholder="e.g. Construction, IT, Tourism" required />
     </div>
 
-    <!-- Max companies -->
     <div class="form-group">
       <label for="max_results">Max Companies</label>
       <input type="number" id="max_results" value="50" min="5" max="200" />
     </div>
 
-    <!-- Sheets toggle -->
     <div class="form-group full">
       <div class="toggle-row">
         <input type="checkbox" id="use_sheets" />
@@ -173,13 +188,11 @@
       <label for="sheets_id">Google Spreadsheet ID</label>
       <input type="text" id="sheets_id" placeholder="Paste the ID from your Sheets URL" />
     </div>
-
   </div>
 
-  <!-- Output columns hint -->
   <div class="output-info">
     <span>Output: </span>
-    <span>Company Name &nbsp;|&nbsp; Email(s) &nbsp;|&nbsp; Business Type &nbsp;|&nbsp; Website URL &nbsp;|&nbsp; Country &nbsp;|&nbsp; Scraped At</span>
+    <span id="col-hint">Company Name | Email(s) | Business Type | Website URL | Country | Scraped At</span>
   </div>
 
   <!-- Progress -->
@@ -212,8 +225,11 @@
     <h3>Live Results (companies with emails)</h3>
     <div class="table-wrap">
       <table>
-        <thead>
-          <tr><th>#</th><th>Company Name</th><th>Email(s)</th><th>Business Type</th><th>Website</th></tr>
+        <thead id="results-thead">
+          <tr>
+            <th>#</th><th>Company Name</th><th>Email(s)</th>
+            <th>Business Type</th><th>Website</th>
+          </tr>
         </thead>
         <tbody id="results-body">
           <tr class="no-rows"><td colspan="5">Results will appear here as emails are found...</td></tr>
@@ -238,7 +254,7 @@
 <footer>100% free · Google Maps · No paid APIs</footer>
 
 <script>
-// ── Countries (datalist) ──────────────────────────────────────────────────
+// ── Countries ─────────────────────────────────────────────────────────────
 const COUNTRIES = [
   "Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda",
   "Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain",
@@ -272,23 +288,55 @@ const COUNTRIES = [
   "Uzbekistan","Vanuatu","Vatican City","Venezuela","Vietnam","Yemen",
   "Zambia","Zimbabwe"
 ];
-
-// Populate datalist once
 const dl = document.getElementById('countries-list');
-COUNTRIES.forEach(c => {
-  const opt = document.createElement('option');
-  opt.value = c;
-  dl.appendChild(opt);
-});
+COUNTRIES.forEach(c => { const o = document.createElement('option'); o.value = c; dl.appendChild(o); });
 
-// ── Sheets toggle ─────────────────────────────────────────────────────────
 document.getElementById('use_sheets').addEventListener('change', function() {
   document.getElementById('sheets-id-group').style.display = this.checked ? 'flex' : 'none';
 });
 
+// Update output column hint & table header when city is entered
+document.getElementById('city').addEventListener('input', updateCityColumn);
+
 // ── State ─────────────────────────────────────────────────────────────────
 let currentJobId = null, eventSource = null;
 let companyCount = 0, emailCount = 0, rowIndex = 0;
+let hasCity = false;
+
+// ── On load: check localStorage for a saved job ───────────────────────────
+window.addEventListener('load', () => {
+  const saved = localStorage.getItem('lead_job');
+  if (saved) {
+    try {
+      const { jobId, label } = JSON.parse(saved);
+      currentJobId = jobId;
+      const banner = document.getElementById('resume-banner');
+      document.getElementById('resume-job-label').textContent = label || jobId.substring(0,8) + '...';
+      banner.style.display = 'flex';
+    } catch { localStorage.removeItem('lead_job'); }
+  }
+});
+
+function updateCityColumn() {
+  hasCity = document.getElementById('city').value.trim().length > 0;
+  const hint = document.getElementById('col-hint');
+  const thead = document.getElementById('results-thead').querySelector('tr');
+
+  if (hasCity) {
+    hint.textContent = 'Company Name | Email(s) | Business Type | Website URL | City | Country | Scraped At';
+    // Add City column to table header if not already there
+    if (!thead.querySelector('th.city-col')) {
+      const th = document.createElement('th');
+      th.className = 'city-col';
+      th.textContent = 'City';
+      thead.insertBefore(th, thead.children[4]); // before Website
+    }
+  } else {
+    hint.textContent = 'Company Name | Email(s) | Business Type | Website URL | Country | Scraped At';
+    const existing = thead.querySelector('th.city-col');
+    if (existing) existing.remove();
+  }
+}
 
 // ── Start job ─────────────────────────────────────────────────────────────
 async function startJob() {
@@ -306,14 +354,12 @@ async function startJob() {
   resetUI(); setRunning(true);
 
   const fd = new FormData();
-  fd.append('country',       country);
-  fd.append('city',          city);
-  fd.append('business_type', businessType);
-  fd.append('max_results',   maxResults);
+  fd.append('country', country); fd.append('city', city);
+  fd.append('business_type', businessType); fd.append('max_results', maxResults);
   if (useSheets) { fd.append('use_sheets','on'); fd.append('sheets_id', sheetsId); }
 
   let resp;
-  try { resp = await fetch('/start', { method:'POST', body: fd }); }
+  try { resp = await fetch('/start', { method:'POST', body:fd }); }
   catch(err) { appendLog('error','Server unreachable: '+err.message,'--:--:--'); setRunning(false); return; }
 
   const data = await resp.json();
@@ -321,14 +367,71 @@ async function startJob() {
 
   currentJobId = data.job_id;
   const location = city ? `${city}, ${country}` : country;
-  appendLog('info', `Job started — ${businessType} in ${location}`, currentTime());
+  const label = `${businessType} in ${location}`;
 
+  // Save to localStorage for resume
+  localStorage.setItem('lead_job', JSON.stringify({ jobId: currentJobId, label }));
+  document.getElementById('resume-banner').style.display = 'none';
+
+  appendLog('info', `Job started — ${label}`, currentTime());
+  openStream();
+}
+
+// ── Open SSE stream ───────────────────────────────────────────────────────
+function openStream() {
+  if (eventSource) eventSource.close();
   eventSource = new EventSource(`/stream/${currentJobId}`);
   eventSource.onmessage = handleSSE;
   eventSource.onerror   = () => {
-    appendLog('warn','SSE connection lost.',currentTime());
-    eventSource.close(); setRunning(false);
+    appendLog('warn', 'SSE connection lost. Click "Resume" to reconnect.', currentTime());
+    eventSource.close();
+    setRunning(false);
+    // Show resume button in banner
+    const saved = localStorage.getItem('lead_job');
+    if (saved) {
+      const { label } = JSON.parse(saved);
+      document.getElementById('resume-job-label').textContent = label || currentJobId.substring(0,8)+'...';
+      document.getElementById('resume-banner').style.display = 'flex';
+    }
   };
+}
+
+// ── Resume job ────────────────────────────────────────────────────────────
+async function resumeJob() {
+  if (!currentJobId) return;
+  appendLog('info', `Checking job status for ${currentJobId.substring(0,8)}...`, currentTime());
+
+  let resp;
+  try { resp = await fetch(`/resume/${currentJobId}`); }
+  catch(err) { appendLog('error', 'Cannot reach server: '+err.message, currentTime()); return; }
+
+  const data = await resp.json();
+  if (data.error) {
+    appendLog('warn', data.error, currentTime());
+    clearSavedJob();
+    return;
+  }
+
+  document.getElementById('resume-banner').style.display = 'none';
+
+  if (data.status === 'done' || data.status === 'cancelled') {
+    appendLog('success', `Job is ${data.status}. ${data.lead_count || 0} leads saved.`, currentTime());
+    if (data.csv_ready) {
+      document.getElementById('btn-download').disabled = false;
+      appendLog('success', 'CSV is ready — click "Download CSV".', currentTime());
+    }
+  } else if (data.status === 'running') {
+    appendLog('info', `Job still running (${data.lead_count || 0} leads so far). Reconnecting...`, currentTime());
+    setRunning(true);
+    openStream();
+  } else {
+    appendLog('warn', `Job status: ${data.status}`, currentTime());
+  }
+}
+
+function clearSavedJob() {
+  localStorage.removeItem('lead_job');
+  document.getElementById('resume-banner').style.display = 'none';
 }
 
 // ── SSE handler ───────────────────────────────────────────────────────────
@@ -338,39 +441,31 @@ function handleSSE(e) {
 
   appendLog(msg.level, msg.message, msg.ts || currentTime());
 
-  // Update progress bar
   if (msg.data?.current !== undefined && msg.data?.total)
     updateProgress(msg.data.current, msg.data.total);
 
-  // SUCCESS with structured data → add table row and update stats accurately
   if (msg.level === 'success' && msg.data?.emails?.length) {
-    const emails   = msg.data.emails;      // real array from backend
-    const company  = msg.data.company || '';
-    const category = msg.data.category || '';
-    const website  = msg.data.website  || '';
-
-    addTableRow(company, emails, category, website);
-
+    const { emails, company='', category='', website='', city:msgCity='' } = msg.data;
+    addTableRow(company, emails, category, website, msgCity);
     companyCount++;
-    emailCount += emails.length;           // exact count, not guessed
+    emailCount += emails.length;
     updateStats();
   }
 
-  // Done event — use final totals from backend
   if (msg.level === 'done') {
     if (msg.data?.count  !== undefined) companyCount = msg.data.count;
     if (msg.data?.emails !== undefined) emailCount   = msg.data.emails;
-    updateStats();
-    updateProgress(1, 1);
+    updateStats(); updateProgress(1,1);
     eventSource.close(); setRunning(false);
     document.getElementById('btn-download').disabled = false;
+    localStorage.removeItem('lead_job');  // job complete — clear saved state
+    document.getElementById('resume-banner').style.display = 'none';
   }
-
   if (msg.level === 'error') { eventSource.close(); setRunning(false); }
 }
 
-// ── Table ─────────────────────────────────────────────────────────────────
-function addTableRow(company, emails, category, website) {
+// ── Table row ─────────────────────────────────────────────────────────────
+function addTableRow(company, emails, category, website, city) {
   const tbody = document.getElementById('results-body');
   const noRow = tbody.querySelector('.no-rows');
   if (noRow) noRow.remove();
@@ -378,23 +473,28 @@ function addTableRow(company, emails, category, website) {
 
   rowIndex++;
   const emailStr = emails.join(', ');
-  const domain   = website ? (new URL(website).hostname.replace('www.','')) : '—';
+  let domain = '—';
+  try { domain = new URL(website).hostname.replace('www.',''); } catch {}
+
+  const showCity = hasCity && city;
+  const cityCell = showCity ? `<td class="city" title="${escHtml(city)}">${escHtml(city)}</td>` : '';
+
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td>${rowIndex}</td>
     <td title="${escHtml(company)}">${escHtml(company.substring(0,28))}${company.length>28?'…':''}</td>
-    <td class="email" title="${escHtml(emailStr)}">${escHtml(emailStr.substring(0,40))}${emailStr.length>40?'…':''}</td>
+    <td class="email" title="${escHtml(emailStr)}">${escHtml(emailStr.substring(0,38))}${emailStr.length>38?'…':''}</td>
     <td title="${escHtml(category)}">${escHtml(category.substring(0,22))}${category.length>22?'…':''}</td>
+    ${cityCell}
     <td title="${escHtml(website)}">${escHtml(domain)}</td>`;
   tbody.appendChild(tr);
-  // Keep last 15 rows
   while (tbody.rows.length > 15) tbody.deleteRow(0);
 }
 
 async function abortJob() {
   if (!currentJobId) return;
   await fetch(`/abort/${currentJobId}`, { method:'POST' });
-  appendLog('warn','Abort requested...',currentTime());
+  appendLog('warn','Abort requested — finishing current site...',currentTime());
 }
 function downloadCSV() { if (currentJobId) window.location.href = `/download/${currentJobId}`; }
 
@@ -403,56 +503,41 @@ function appendLog(level, message, ts) {
   const con  = document.getElementById('console');
   const line = document.createElement('div');
   line.className = 'log-line';
-  const bc = {
-    info:'badge-info', success:'badge-success', warn:'badge-warn',
-    error:'badge-error', done:'badge-done', progress:'badge-progress'
-  }[level] || 'badge-info';
-  line.innerHTML = `<span class="log-ts">${escHtml(ts)}</span>`
-    + `<span class="log-badge ${bc}">${escHtml(level.toUpperCase())}</span>`
-    + `<span class="log-msg">${escHtml(message)}</span>`;
+  const bc = {info:'badge-info',success:'badge-success',warn:'badge-warn',error:'badge-error',done:'badge-done',progress:'badge-progress'}[level]||'badge-info';
+  line.innerHTML = `<span class="log-ts">${escHtml(ts)}</span><span class="log-badge ${bc}">${escHtml(level.toUpperCase())}</span><span class="log-msg">${escHtml(message)}</span>`;
   con.appendChild(line);
   con.scrollTop = con.scrollHeight;
 }
 function clearLog() { document.getElementById('console').innerHTML = ''; }
 
-// ── Progress / stats ──────────────────────────────────────────────────────
 function updateProgress(cur, tot) {
   document.getElementById('progress-wrap').style.display = 'block';
-  const pct = tot > 0 ? Math.min(Math.round(cur / tot * 100), 100) : 0;
-  document.getElementById('progress-fill').style.width = pct + '%';
-  document.getElementById('progress-pct').textContent   = pct + '%';
+  const pct = tot > 0 ? Math.min(Math.round(cur/tot*100),100) : 0;
+  document.getElementById('progress-fill').style.width = pct+'%';
+  document.getElementById('progress-pct').textContent   = pct+'%';
   document.getElementById('progress-label').textContent = `${cur} / ${tot} companies`;
 }
-
 function updateStats() {
   document.getElementById('stats-row').style.display    = 'flex';
   document.getElementById('stat-companies').textContent = companyCount;
   document.getElementById('stat-emails').textContent    = emailCount;
-  // Success rate = companies WITH at least 1 email / total visited
-  const rate = companyCount > 0 ? Math.round((rowIndex / companyCount) * 100) : 0;
-  document.getElementById('stat-rate').textContent = Math.min(rate, 100) + '%';
+  const rate = companyCount > 0 ? Math.round((rowIndex/companyCount)*100) : 0;
+  document.getElementById('stat-rate').textContent      = Math.min(rate,100)+'%';
 }
-
 function resetUI() {
-  companyCount = 0; emailCount = 0; rowIndex = 0;
-  ['stats-row','progress-wrap','output-section'].forEach(id =>
-    document.getElementById(id).style.display = 'none');
+  companyCount=0; emailCount=0; rowIndex=0;
+  ['stats-row','progress-wrap','output-section'].forEach(id => document.getElementById(id).style.display='none');
   document.getElementById('progress-fill').style.width = '0%';
-  document.getElementById('results-body').innerHTML =
-    '<tr class="no-rows"><td colspan="5">Results will appear here as emails are found...</td></tr>';
+  document.getElementById('results-body').innerHTML = '<tr class="no-rows"><td colspan="5">Results will appear here as emails are found...</td></tr>';
   document.getElementById('btn-download').disabled = true;
   clearLog();
 }
-
 function setRunning(r) {
-  document.getElementById('btn-start').disabled         = r;
-  document.getElementById('btn-abort').style.display    = r ? 'inline-block' : 'none';
+  document.getElementById('btn-start').disabled      = r;
+  document.getElementById('btn-abort').style.display = r ? 'inline-block' : 'none';
 }
-
 function escHtml(s) {
-  return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function currentTime() { return new Date().toTimeString().substring(0,8); }
 </script>
