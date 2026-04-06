@@ -66,37 +66,57 @@ async def search_google_maps(
         try:
             # Use domcontentloaded — Maps never reaches networkidle
             await page.goto(maps_url, wait_until="domcontentloaded", timeout=45_000)
+            await page.wait_for_timeout(3000)  # Give Maps time to render
 
-            # Wait for either the results feed or the consent form
-            try:
-                await page.wait_for_selector(
-                    'div[role="feed"], form[action*="consent"], button[aria-label*="Accept"]',
-                    timeout=15_000,
-                )
-            except PWTimeout:
-                emit_fn("warn", "Maps page took too long to load results panel.")
-
-            # Accept cookies / consent (EU regions)
+            # Accept cookies / consent FIRST (before looking for results)
+            emit_fn("info", "Checking for cookie consent...")
             for selector in [
                 'button:has-text("Accept all")',
                 'button:has-text("Agree")',
                 'button:has-text("I agree")',
+                'button:has-text("Accept")',
                 'form[action*="consent"] button[type="submit"]',
             ]:
                 try:
                     btn = page.locator(selector).first
                     if await btn.is_visible(timeout=2000):
                         await btn.click()
-                        await page.wait_for_timeout(1500)
+                        emit_fn("info", "Accepted cookies.")
+                        await page.wait_for_timeout(2000)
                         break
                 except Exception:
                     pass
 
-            # Wait for results feed after consent
-            try:
-                await page.wait_for_selector('div[role="feed"]', timeout=12_000)
-            except PWTimeout:
+            # Wait for results feed with multiple selector strategies
+            emit_fn("info", "Waiting for Google Maps results to load...")
+            feed_found = False
+            
+            # Try multiple selectors that Google Maps might use
+            for selector in [
+                'div[role="feed"]',
+                'div[role="listbox"]',
+                'div[aria-label*="Results"]',
+                'div[jsaction*="scroll"]',
+                'div.Nv2PK',  # Common Maps results container class
+                'div.fontBodyMedium',  # Text content in results
+            ]:
+                try:
+                    await page.wait_for_selector(selector, timeout=5000)
+                    emit_fn("info", f"Found results container: {selector}")
+                    feed_found = True
+                    break
+                except PWTimeout:
+                    continue
+            
+            if not feed_found:
                 emit_fn("warn", "No results feed found — Maps may have changed layout or blocked the request.")
+                # Try to debug: check if page loaded at all
+                try:
+                    page_title = await page.title()
+                    page_url = page.url
+                    emit_fn("warn", f"Page title: {page_title}, URL: {page_url[:80]}")
+                except Exception:
+                    pass
                 return results
 
             emit_fn("info", "Google Maps loaded. Scrolling for results...")
@@ -108,7 +128,25 @@ async def search_google_maps(
             while len(results) < max_results and scroll_attempts < max_scrolls:
 
                 # ── Extract visible listing cards ──────────────────────
-                cards = await page.locator('a[href*="/maps/place/"]').all()
+                # Try multiple selectors for Google Maps listing cards
+                cards = []
+                for card_selector in [
+                    'a[href*="/maps/place/"]',
+                    'a[aria-label][href*="maps"]',
+                    'div.Nv2PK a',
+                    'div[role="article"] a',
+                ]:
+                    try:
+                        found_cards = await page.locator(card_selector).all()
+                        if found_cards:
+                            cards = found_cards
+                            emit_fn("info", f"Using card selector: {card_selector}, found {len(found_cards)} cards")
+                            break
+                    except Exception:
+                        continue
+                
+                if not cards:
+                    emit_fn("warn", "No listing cards found. Trying to scroll anyway...")
 
                 for card in cards:
                     if len(results) >= max_results:
@@ -140,37 +178,55 @@ async def search_google_maps(
 
                         # Website URL — look for external link in card
                         website_url = ""
-                        try:
-                            web_links = await container.locator(
-                                'a[data-value="Website"], a[aria-label*="website" i]'
-                            ).all()
-                            for wl in web_links:
-                                href = (await wl.get_attribute("href") or "").strip()
-                                if href.startswith("http") and "google" not in href:
-                                    website_url = href.split("?")[0]
+                        for web_selector in [
+                            'a[data-value="Website"]',
+                            'a[aria-label*="website" i]',
+                            'a[href*="http"]:not([href*="google"]):not([href*="/maps"])',
+                            'div[data-item-id*="authority"] a',
+                        ]:
+                            try:
+                                web_links = await container.locator(web_selector).all()
+                                for wl in web_links:
+                                    href = (await wl.get_attribute("href") or "").strip()
+                                    if href.startswith("http") and "google" not in href and "/maps" not in href:
+                                        website_url = href.split("?")[0]
+                                        break
+                                if website_url:
                                     break
-                        except Exception:
-                            pass
+                            except Exception:
+                                pass
 
                         # Fallback: click listing to open side panel and grab website
                         if not website_url:
                             try:
                                 await card.click(timeout=3000)
-                                await page.wait_for_timeout(1500)
-                                web_el = page.locator(
-                                    'a[data-item-id="authority"], '
-                                    'a[aria-label*="website" i], '
-                                    'div[data-section-id="apiv3link"] a'
-                                ).first
-                                if await web_el.is_visible(timeout=3000):
-                                    href = (await web_el.get_attribute("href") or "").strip()
-                                    if href.startswith("http") and "google" not in href:
-                                        website_url = href.split("?")[0]
+                                await page.wait_for_timeout(2000)
+                                
+                                # Try multiple selectors for website link in side panel
+                                for panel_selector in [
+                                    'a[data-item-id="authority"]',
+                                    'a[aria-label*="website" i]',
+                                    'div[data-section-id="apiv3link"] a',
+                                    'a[href*="http"]:not([href*="google"]):not([href*="/maps"])',
+                                ]:
+                                    try:
+                                        web_el = page.locator(panel_selector).first
+                                        if await web_el.is_visible(timeout=2000):
+                                            href = (await web_el.get_attribute("href") or "").strip()
+                                            if href.startswith("http") and "google" not in href and "/maps" not in href:
+                                                website_url = href.split("?")[0]
+                                                break
+                                    except Exception:
+                                        continue
+                                
                                 # Press Escape to close the side panel
                                 await page.keyboard.press("Escape")
                                 await page.wait_for_timeout(500)
                             except Exception:
-                                pass
+                                try:
+                                    await page.keyboard.press("Escape")
+                                except Exception:
+                                    pass
 
                         results.append({
                             "name":        name,
