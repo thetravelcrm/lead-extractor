@@ -108,6 +108,10 @@ def event_generator(job_id: str):
     - A "done" or "error" event is received from the pipeline
     - 60 minutes have elapsed (safety timeout for long-running jobs)
     - The job queue no longer exists
+
+    IMPORTANT: Only cleans up the job if it's actually done.
+    If the connection drops (timeout/network), the queue is preserved
+    so the frontend can reconnect.
     """
     q = _job_queues.get(job_id)
     if q is None:
@@ -115,6 +119,7 @@ def event_generator(job_id: str):
         return
 
     deadline = time.time() + 3600  # 60 minutes
+    job_done = False
 
     while time.time() < deadline:
         try:
@@ -127,6 +132,10 @@ def event_generator(job_id: str):
         yield format_sse(payload)
 
         if payload.get("level") in ("done", "error"):
+            job_done = True
             break
 
-    cleanup_job(job_id)
+    # Only cleanup if the job actually finished (done/error)
+    # If we timed out or connection dropped, leave the queue for reconnect
+    if job_done:
+        cleanup_job(job_id)
