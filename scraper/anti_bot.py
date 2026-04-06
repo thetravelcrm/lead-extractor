@@ -14,10 +14,15 @@ Provides:
 import random
 import time
 import threading
+import warnings
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from urllib3.exceptions import InsecureRequestWarning
+
+# Suppress InsecureRequestWarning — intentional for scraping self-signed certs
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
 from config.settings import USER_AGENTS, REQUEST_TIMEOUT, MAX_RETRIES, RATE_LIMIT_RPM
 
