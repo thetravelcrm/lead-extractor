@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-liberation \
       # Needed to download Playwright browsers
       wget \
+      ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user (HF Spaces runs as UID 1000)
@@ -40,20 +41,28 @@ RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
 
+# Set Playwright env vars BEFORE installing (ensures browsers are cached in build)
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers
+ENV PLAYWRIGHT_SKIP_BROWSER_GC=1
+
 # Copy and install Python dependencies first (layer-cached)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright's Chromium browser
-# PLAYWRIGHT_BROWSERS_PATH keeps the binary inside /app so it is owned by appuser
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers
-RUN playwright install chromium && chmod -R 777 /app/.playwright-browsers
+# Install Playwright's Chromium browser during BUILD (not at runtime!)
+# This is the critical fix — Chromium must be pre-installed
+RUN playwright install --with-deps chromium \
+    && playwright install-deps chromium \
+    && chmod -R 777 /app/.playwright-browsers
 
 # Copy the rest of the source code
 COPY --chown=appuser:appuser . .
 
 # Switch to non-root user
 USER appuser
+
+# Verify Chromium is accessible (fast check at startup)
+RUN python -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print('Chromium OK'); p.stop()"
 
 # HF Spaces requires port 7860
 EXPOSE 7860
@@ -67,4 +76,6 @@ CMD ["gunicorn", \
      "--worker-class", "gthread", \
      "--timeout", "600", \
      "--keep-alive", "120", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
      "app:app"]
