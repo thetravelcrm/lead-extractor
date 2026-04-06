@@ -35,6 +35,7 @@ from scraper.anti_bot import build_session, random_delay, RateLimiter
 from scraper.extractor import extract_emails, extract_emails_from_html, extract_company_name
 from scraper.website_visitor import visit_website
 from scraper.google_search import build_query, search_google_maps
+from scraper.web_search import search_emails_for_company
 from storage.csv_writer import append_lead_csv, write_leads_csv, get_csv_path
 from storage.sheets_writer import check_sheets_credentials, append_leads_to_sheet
 
@@ -330,6 +331,27 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     mailto_emails = extract_emails_from_html(page_data["html"])
                     all_raw = list(dict.fromkeys(text_emails + mailto_emails))  # merge, keep order
                     emails = [e for e in all_raw if validate_email(e)]
+
+                    # STAGE 2.5: Google Search for additional emails (Facebook, directories, etc.)
+                    if len(emails) < 3 and name:  # Only search if we have <3 emails
+                        _emit(job_id, "info", f"  🔍 Web search for {name[:30]}...")
+                        rate_limiter.acquire()
+                        loop2 = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop2)
+                        try:
+                            search_emails_list = loop2.run_until_complete(
+                                search_emails_for_company(name, website_url, lambda lvl, msg: None)
+                            )
+                        except Exception:
+                            search_emails_list = []
+                        finally:
+                            loop2.close()
+
+                        # Validate and merge web search emails
+                        for se in search_emails_list:
+                            if validate_email(se) and se not in emails:
+                                emails.append(se)
+                                _emit(job_id, "info", f"  🌐 Web search found: {se}")
 
             # Classify business type
             page_text = page_data["text"] if page_data else ""
