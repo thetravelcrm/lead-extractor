@@ -59,8 +59,13 @@ def get_direct_contact_urls(base_url: str) -> list:
     parsed = urlparse(base_url)
     base = f"{parsed.scheme}://{parsed.netloc}"
     slugs = [
-        "/contact", "/contact-us", "/contact_us", "/contactus",
-        "/about", "/about-us", "/about_us", "/aboutus",
+        # Standard contact pages
+        "/contact", "/contact/", "/contact-us", "/contact-us/", "/contact_us", "/contactus",
+        "/contactus/", "/contact-us.html", "/contact.html", "/contactus.html",
+        # About pages
+        "/about", "/about/", "/about-us", "/about-us/", "/about_us", "/aboutus",
+        "/aboutus/", "/about.html", "/aboutus.html",
+        # Indian site conventions
         "/reach-us", "/get-in-touch", "/enquiry", "/info",
         "/contacto", "/kontakt", "/impressum", "/team",
         "/get-quote", "/quote", "/request-quote", "/book-now",
