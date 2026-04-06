@@ -106,7 +106,7 @@ def event_generator(job_id: str):
 
     Exits when:
     - A "done" or "error" event is received from the pipeline
-    - 10 minutes have elapsed (safety timeout)
+    - 60 minutes have elapsed (safety timeout for long-running jobs)
     - The job queue no longer exists
     """
     q = _job_queues.get(job_id)
@@ -114,7 +114,7 @@ def event_generator(job_id: str):
         yield format_sse({"level": "error", "message": "Unknown job ID", "ts": ""})
         return
 
-    deadline = time.time() + 600  # 10 minutes
+    deadline = time.time() + 3600  # 60 minutes
 
     while time.time() < deadline:
         try:

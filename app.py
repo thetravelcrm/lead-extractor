@@ -16,6 +16,7 @@ Output columns: Company Name | Email(s) | Business Type | Website URL | Country 
 import asyncio
 import os
 import threading
+import time
 import uuid
 from datetime import datetime
 
@@ -25,7 +26,7 @@ from flask import (Flask, Response, jsonify, render_template,
 
 load_dotenv()
 
-from config.settings import FLASK_SECRET_KEY, FLASK_DEBUG, MAX_CONCURRENT_JOBS
+from config.settings import FLASK_SECRET_KEY, FLASK_DEBUG, MAX_CONCURRENT_JOBS, JOB_TIMEOUT_MINUTES
 from sse.event_stream import create_job_queue, emit, event_generator, cancel_job, is_cancelled
 from processor.lead_model import Lead
 from processor.cleaner import validate_email, clean_company_name, deduplicate_leads
@@ -218,6 +219,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
       Stage 3 — Deduplicate
       Stage 4 — Save CSV + optional Sheets
     """
+    start_time = time.time()
     country       = params["country"]
     city          = params.get("city", "")
     business_type = params["business_type"]
@@ -263,18 +265,47 @@ def _run_pipeline(job_id: str, params: dict) -> None:
         # ----------------------------------------------------------------
         # STAGE 2 — Visit websites & extract emails
         # ----------------------------------------------------------------
-        for i, listing in enumerate(listings, start=1):
+        # Deduplicate by URL to avoid visiting the same website multiple times
+        # (common with Google Maps where multiple listings share one website)
+        visited_urls = {}  # url -> lead_data
+        unique_listings = []
+        skipped_dupes = 0
+        
+        for listing in listings:
+            url = listing.get("website_url", "").strip().rstrip("/")
+            if url and url in visited_urls:
+                skipped_dupes += 1
+                continue
+            unique_listings.append(listing)
+            if url:
+                visited_urls[url] = listing
+        
+        if skipped_dupes > 0:
+            _emit(job_id, "info", f"Skipped {skipped_dupes} duplicate URLs. Processing {len(unique_listings)} unique websites...")
+        
+        total_unique = len(unique_listings)
+        processed_count = 0
+        
+        for listing in unique_listings:
+            # Check job timeout
+            elapsed_minutes = (time.time() - start_time) / 60
+            if elapsed_minutes > JOB_TIMEOUT_MINUTES:
+                _emit(job_id, "warn", 
+                      f"Job timeout reached ({JOB_TIMEOUT_MINUTES} min). Saving {len(all_leads)} leads collected so far.")
+                break
+            
             if is_cancelled(job_id):
                 _emit(job_id, "warn", "Job cancelled.")
                 break
-
+            
+            processed_count += 1
             name         = listing.get("name", "")
             category     = listing.get("category", "") or business_type
             website_url  = listing.get("website_url", "")
 
             _emit(job_id, "info",
-                  f"[{i}/{total}] {name or 'Unknown'} — {website_url[:50] or 'no website'}",
-                  data={"current": i, "total": total})
+                  f"[{processed_count}/{total_unique}] {name or 'Unknown'} — {website_url[:50] or 'no website'}",
+                  data={"current": processed_count, "total": total_unique})
 
             emails = []
             page_data = None
@@ -343,8 +374,8 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                           "category":   final_category,
                           "website":    website_url,
                           "city":       city,
-                          "current":    i,
-                          "total":      total,
+                          "current":    processed_count,
+                          "total":      total_unique,
                       })
             else:
                 # No emails — still save the company row (without email)
@@ -364,7 +395,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     _jobs[job_id]["lead_count"] = len(all_leads)
 
                 _emit(job_id, "info", f"  {clean_name or '(no name)'} — no email found",
-                      data={"current": i, "total": total})
+                      data={"current": processed_count, "total": total_unique})
 
             random_delay((1.0, 2.5))
 

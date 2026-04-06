@@ -378,21 +378,25 @@ async function startJob() {
 }
 
 // ── Open SSE stream ───────────────────────────────────────────────────────
+let reconnectTimer = null;
+
 function openStream() {
   if (eventSource) eventSource.close();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  
   eventSource = new EventSource(`/stream/${currentJobId}`);
   eventSource.onmessage = handleSSE;
   eventSource.onerror   = () => {
-    appendLog('warn', 'SSE connection lost. Click "Resume" to reconnect.', currentTime());
+    appendLog('warn', 'SSE connection lost. Reconnecting in 3 seconds...', currentTime());
     eventSource.close();
     setRunning(false);
-    // Show resume button in banner
-    const saved = localStorage.getItem('lead_job');
-    if (saved) {
-      const { label } = JSON.parse(saved);
-      document.getElementById('resume-job-label').textContent = label || currentJobId.substring(0,8)+'...';
-      document.getElementById('resume-banner').style.display = 'flex';
-    }
+    
+    // Auto-reconnect after 3 seconds
+    reconnectTimer = setTimeout(() => {
+      appendLog('info', 'Reconnecting to SSE stream...', currentTime());
+      setRunning(true);
+      openStream();
+    }, 3000);
   };
 }
 
@@ -460,8 +464,12 @@ function handleSSE(e) {
     document.getElementById('btn-download').disabled = false;
     localStorage.removeItem('lead_job');  // job complete — clear saved state
     document.getElementById('resume-banner').style.display = 'none';
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   }
-  if (msg.level === 'error') { eventSource.close(); setRunning(false); }
+  if (msg.level === 'error') { 
+    eventSource.close(); setRunning(false); 
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  }
 }
 
 // ── Table row ─────────────────────────────────────────────────────────────
@@ -493,6 +501,7 @@ function addTableRow(company, emails, category, website, city) {
 
 async function abortJob() {
   if (!currentJobId) return;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   await fetch(`/abort/${currentJobId}`, { method:'POST' });
   appendLog('warn','Abort requested — finishing current site...',currentTime());
 }

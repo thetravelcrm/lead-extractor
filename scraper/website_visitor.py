@@ -62,6 +62,10 @@ def get_direct_contact_urls(base_url: str) -> list:
         "/contact", "/contact-us", "/contact_us", "/contactus",
         "/about", "/about-us", "/about_us", "/aboutus",
         "/reach-us", "/get-in-touch", "/enquiry", "/info",
+        "/contacto", "/kontakt", "/impressum", "/team",
+        "/get-quote", "/quote", "/request-quote", "/book-now",
+        "/enquiry-form", "/contact-form", "/send-email",
+        "/company", "/who-we-are", "/our-story",
     ]
     return [base + s for s in slugs]
 
@@ -73,7 +77,9 @@ def get_contact_page_urls(base_url: str, soup: BeautifulSoup) -> list:
     """
     keywords = {"contact", "about", "impressum", "reach", "reach-us",
                 "reach us", "get-in-touch", "get in touch", "touch",
-                "enquire", "enquiry", "info"}
+                "enquire", "enquiry", "info", "quote", "book",
+                "email", "call", "phone", "whatsapp", "team",
+                "who we are", "our story", "company"}
     base_host = urlparse(base_url).netloc.lower()
     candidates = []
     seen = set()
@@ -219,7 +225,7 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
     direct_urls = get_direct_contact_urls(url)
     probed = 0
     for sub_url in direct_urls:
-        if probed >= 3:
+        if probed >= 6:
             break
         if sub_url in visited_sub:
             continue
