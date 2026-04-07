@@ -1,7 +1,7 @@
 """
 processor/lead_model.py
 -----------------------
-Columns: Company Name | Email(s) | Business Type | Website URL | City | Country | Scraped At
+Columns: Company Name | Email(s) | WhatsApp/Phone | Business Type | Website URL | City | Country | Scraped At
 """
 
 from dataclasses import dataclass, field
@@ -11,6 +11,7 @@ from typing import List
 CSV_HEADERS = [
     "Company Name",
     "Email(s)",
+    "WhatsApp/Phone",
     "Business Type",
     "Website URL",
     "City",
@@ -23,6 +24,7 @@ CSV_HEADERS = [
 class Lead:
     company_name:  str       = ""
     email:         List[str] = field(default_factory=list)
+    whatsapp_phone: str      = ""
     business_type: str       = ""
     website_url:   str       = ""
     city:          str       = ""
@@ -36,6 +38,7 @@ class Lead:
         return {
             "Company Name":  self.company_name,
             "Email(s)":      "; ".join(self.email),
+            "WhatsApp/Phone": self.whatsapp_phone,
             "Business Type": self.business_type,
             "Website URL":   self.website_url,
             "City":          self.city,
@@ -53,4 +56,5 @@ class Lead:
             + (1 if self.company_name else 0)
             + (1 if self.website_url else 0)
             + (1 if self.business_type else 0)
+            + (1 if self.whatsapp_phone else 0)
         )

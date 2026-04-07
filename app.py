@@ -326,11 +326,27 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     if not name and soup:
                         name = extract_company_name(soup, website_url)
 
-                    # Extract from visible text AND from mailto: links in HTML
+                    # BULLETPROOF: Extract emails from entire HTML source (not just visible text)
+                    from scraper.website_visitor import extract_emails_from_source, extract_phones_from_source
+                    source_emails = extract_emails_from_source(page_data["html"])
                     text_emails  = extract_emails(page_data["text"])
                     mailto_emails = extract_emails_from_html(page_data["html"])
-                    all_raw = list(dict.fromkeys(text_emails + mailto_emails))  # merge, keep order
-                    emails = [e for e in all_raw if validate_email(e)]
+                    # Merge all sources, keep order, validate
+                    all_raw = list(dict.fromkeys(
+                        [e for e in source_emails if validate_email(e)] +
+                        [e for e in text_emails if validate_email(e)] +
+                        [e for e in mailto_emails if validate_email(e)]
+                    ))
+                    emails = all_raw
+
+                    # Extract WhatsApp/Phone numbers
+                    whatsapp_phone = ""
+                    found_phones = page_data.get("found_phones", [])
+                    source_phones = extract_phones_from_source(page_data["html"])
+                    all_phones = list(dict.fromkeys(found_phones + list(source_phones)))
+                    # Prefer WhatsApp number if available, otherwise first phone
+                    if all_phones:
+                        whatsapp_phone = all_phones[0]
 
                     # STAGE 2.5: Google Search for additional emails (Facebook, directories, etc.)
                     if len(emails) < 3 and name:  # Only search if we have <3 emails
@@ -363,18 +379,15 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                 clean_name = _company_name_from_email(emails[0])
 
             if emails:
-                # ── ONE ROW PER EMAIL ────────────────────────────────
-                for email in emails:
-                    local_part = email.split("@")[0].lower()
-                    # Append local part to company name only when it's meaningful
-                    if local_part in _GENERIC_LOCAL:
-                        row_name = clean_name          # info@... → keep plain name
-                    else:
-                        row_name = f"{clean_name} {local_part}".strip() if clean_name else local_part.title()
+                # ── ONE ROW PER EMAIL with numbered naming ────────────────────────
+                for idx, email in enumerate(emails, start=1):
+                    # Numbered naming: "Company Name 1", "Company Name 2", etc.
+                    row_name = f"{clean_name} {idx}" if clean_name else f"Unknown {idx}"
 
                     lead = Lead(
                         company_name  = row_name,
                         email         = [email],
+                        whatsapp_phone = whatsapp_phone if idx == 1 else "",  # Only first row gets phone
                         business_type = final_category,
                         website_url   = website_url,
                         city          = city,
@@ -401,9 +414,20 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                       })
             else:
                 # No emails — still save the company row (without email)
+                # But extract phone/WhatsApp if available
+                whatsapp_phone = ""
+                if page_data:
+                    from scraper.website_visitor import extract_phones_from_source
+                    found_phones = page_data.get("found_phones", [])
+                    source_phones = extract_phones_from_source(page_data["html"])
+                    all_phones = list(dict.fromkeys(found_phones + list(source_phones)))
+                    if all_phones:
+                        whatsapp_phone = all_phones[0]
+
                 lead = Lead(
                     company_name  = clean_name,
                     email         = [],
+                    whatsapp_phone = whatsapp_phone,
                     business_type = final_category,
                     website_url   = website_url,
                     city          = city,

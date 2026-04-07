@@ -2,14 +2,15 @@
 scraper/website_visitor.py
 --------------------------
 BULLETPROOF website visitor — ALWAYS uses Playwright for full JS rendering.
-Extracts emails from homepage, all internal pages, and raw HTML source.
+Extracts emails, phones, and WhatsApp numbers from homepage, all internal pages, and raw HTML source.
 
 Strategy:
 1. ALWAYS use Playwright (full JS rendering — catches React/Next.js/SPA sites).
 2. Extract emails from entire HTML source (mailto:, data-attrs, hidden text).
-3. Follow ALL internal links to find additional pages with emails.
-4. Visit footer/about/contact/team pages explicitly.
-5. Merge emails from ALL pages into one comprehensive list.
+3. Extract phone/WhatsApp numbers from tel: links and visible text.
+4. Follow ALL internal links to find additional pages with contact info.
+5. Visit footer/about/contact/team pages explicitly.
+6. Merge all contact info from ALL pages into one comprehensive list.
 """
 
 import asyncio
@@ -41,25 +42,25 @@ def extract_emails_from_source(html: str) -> Set[str]:
     - Meta tags
     """
     emails = set()
-    
+
     # Pattern 1: mailto: links (most reliable)
     mailto_pattern = re.compile(r'mailto:([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})', re.IGNORECASE)
     emails.update(m.lower() for m in mailto_pattern.findall(html))
-    
+
     # Pattern 2: Direct email addresses everywhere in HTML
     email_pattern = re.compile(
         r'(?<![=/])\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b',
         re.IGNORECASE
     )
     emails.update(e.lower() for e in email_pattern.findall(html))
-    
+
     # Pattern 3: data-* attributes
     data_pattern = re.compile(
         r'(?:data-email|data-contact|data-mail)=["\']([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})["\']',
         re.IGNORECASE
     )
     emails.update(e.lower() for e in data_pattern.findall(html))
-    
+
     # Filter out false positives
     filtered = set()
     for email in emails:
@@ -70,7 +71,51 @@ def extract_emails_from_source(html: str) -> Set[str]:
         if any(email.endswith(ext) for ext in ['.png', '.jpg', '.gif', '.svg', '.css', '.js', '.ico']):
             continue
         filtered.add(email)
-    
+
+    return filtered
+
+
+# ---------------------------------------------------------------------------
+# Phone/WhatsApp extraction from raw HTML
+# ---------------------------------------------------------------------------
+
+def extract_phones_from_source(html: str) -> Set[str]:
+    """
+    Aggressively extract ALL phone numbers from raw HTML source.
+    Catches phones in:
+    - tel: links
+    - WhatsApp links (wa.me, api.whatsapp.com)
+    - Direct text in body/footer/header
+    - data attributes
+    """
+    phones = set()
+
+    # Pattern 1: tel: links
+    tel_pattern = re.compile(r'tel:([+\d][\d\s\-\(\)]{7,})', re.IGNORECASE)
+    phones.update(t.strip() for t in tel_pattern.findall(html))
+
+    # Pattern 2: WhatsApp deep links
+    wa_pattern = re.compile(r'(?:wa\.me|api\.whatsapp\.com/send)[/\?](?:phone=)?([+\d][\d\s\-\(\)]{7,})', re.IGNORECASE)
+    phones.update(w.strip() for w in wa_pattern.findall(html))
+
+    # Pattern 3: Phone-like patterns in text (international format)
+    # Matches: +91 98765 43210, +91-9876543210, 040 4890 5932, etc.
+    phone_pattern = re.compile(r'(?:Phone|Mobile|Mob|Call|WhatsApp|Whatsapp|Tel|Contact)[\s:]*([+\d][\d\s\-\(\)]{7,})', re.IGNORECASE)
+    phones.update(p.strip() for p in phone_pattern.findall(html))
+
+    # Pattern 4: Standalone international phone numbers
+    intl_pattern = re.compile(r'([+]\d{1,3}[\s\-]?\d{3,4}[\s\-]?\d{3,4}[\s\-]?\d{3,4})')
+    phones.update(i.strip() for i in intl_pattern.findall(html))
+
+    # Filter: must have at least 7 digits
+    filtered = set()
+    for phone in phones:
+        digits = re.sub(r'\D', '', phone)
+        if len(digits) >= 7:
+            # Clean up the phone number
+            cleaned = re.sub(r'\s+', ' ', phone.strip())
+            filtered.add(cleaned)
+
     return filtered
 
 
@@ -91,7 +136,7 @@ async def _fetch_with_playwright(url: str) -> Optional[str]:
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=25_000)
             # Wait extra for lazy-loaded content (footers, popups, etc.)
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(5000)  # 5 seconds for full render
             html = await page.content()
             await browser.close()
             return html
@@ -179,11 +224,11 @@ def get_all_internal_urls(base_url: str, soup: BeautifulSoup) -> list:
     base_host = urlparse(base_url).netloc.lower()
     urls = []
     seen = set()
-    
+
     for tag in soup.find_all("a", href=True):
         href = tag["href"].strip()
         abs_url = _make_absolute(base_url, href)
-        
+
         if not abs_url.startswith("http"):
             continue
         if not _is_same_domain(abs_url, base_url):
@@ -194,11 +239,11 @@ def get_all_internal_urls(base_url: str, soup: BeautifulSoup) -> list:
         # Skip common non-content URLs
         if any(skip in abs_url.lower() for skip in ['/wp-admin', '/wp-login', '/admin', '/login', '.xml', '.json']):
             continue
-        
+
         if abs_url not in seen:
             seen.add(abs_url)
             urls.append(abs_url)
-    
+
     return urls[:15]  # Limit to first 15 pages for speed
 
 
@@ -209,10 +254,11 @@ def get_all_internal_urls(base_url: str, soup: BeautifulSoup) -> list:
 def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
     """
     Fetch a website using Playwright (full JS rendering) and return its content.
-    
+
     BULLETPROOF features:
     - Always uses Playwright (catches React/Next.js/WordPress JS sites)
     - Extracts emails from entire HTML source (not just visible text)
+    - Extracts phone/WhatsApp numbers from tel: links and visible text
     - Visits contact/about/team pages explicitly
     - Scans footer, header, and all internal pages
     """
@@ -221,6 +267,7 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
 
     all_html = []
     all_emails = set()
+    all_phones = set()
     title = ""
     rendered = False
 
@@ -231,6 +278,8 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
         rendered = True
         # Extract emails from homepage HTML source
         all_emails.update(extract_emails_from_source(js_html))
+        # Extract phone/WhatsApp from homepage
+        all_phones.update(extract_phones_from_source(js_html))
     else:
         # Fallback to requests if Playwright fails
         try:
@@ -238,6 +287,7 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
             if resp.status_code == 200:
                 all_html.append(resp.text)
                 all_emails.update(extract_emails_from_source(resp.text))
+                all_phones.update(extract_phones_from_source(resp.text))
         except Exception:
             return None
 
@@ -254,30 +304,32 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
 
     # ---- Step 3: Visit contact/about/team pages ----
     visited_urls = {url}
-    
+
     # 3a. Links found on the main page
     contact_links = get_contact_page_urls(url, main_soup)
     for sub_url in contact_links[:5]:
         if sub_url in visited_urls:
             continue
         visited_urls.add(sub_url)
-        
+
         sub_html = _fetch_with_playwright_sync(sub_url)
         if sub_html:
             all_html.append(sub_html)
             all_emails.update(extract_emails_from_source(sub_html))
+            all_phones.update(extract_phones_from_source(sub_html))
         else:
             try:
                 sub_resp = session.get(sub_url, timeout=REQUEST_TIMEOUT, verify=False, allow_redirects=True)
                 if sub_resp.status_code == 200:
                     all_html.append(sub_resp.text)
                     all_emails.update(extract_emails_from_source(sub_resp.text))
+                    all_phones.update(extract_phones_from_source(sub_resp.text))
             except Exception:
                 pass
-        
+
         random_delay((0.3, 0.7))
 
-    # 3b. Scan a few more internal pages for emails
+    # 3b. Scan a few more internal pages for contact info
     all_internal = get_all_internal_urls(url, main_soup)
     pages_visited = 0
     for sub_url in all_internal:
@@ -285,12 +337,13 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
             continue
         visited_urls.add(sub_url)
         pages_visited += 1
-        
+
         sub_html = _fetch_with_playwright_sync(sub_url)
         if sub_html:
             all_html.append(sub_html)
             all_emails.update(extract_emails_from_source(sub_html))
-        
+            all_phones.update(extract_phones_from_source(sub_html))
+
         random_delay((0.3, 0.5))
 
     # ---- Step 4: Build combined output ----
@@ -310,5 +363,6 @@ def visit_website(url: str, session: requests.Session = None) -> Optional[dict]:
         "text":        combined_text,
         "title":       title,
         "rendered":    rendered,
-        "found_emails": list(all_emails),  # Return all emails found
+        "found_emails": list(all_emails),      # Return all emails found
+        "found_phones": list(all_phones),      # Return all phones/WhatsApp found
     }
