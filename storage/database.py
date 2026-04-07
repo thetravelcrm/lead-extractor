@@ -16,6 +16,7 @@ Workflow:
 """
 
 import os
+import tempfile
 import sqlite3
 import json
 import random
@@ -23,13 +24,26 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from contextlib import contextmanager
 
-# Database file path (relative to project root)
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "searches.db")
+# Database file path - use /tmp for Docker/HF Spaces compatibility
+# Falls back to local data/ directory if writable
+def _get_db_path():
+    """Get database path, preferring /tmp for Docker containers."""
+    # Try /tmp first (always writable in Docker/HF Spaces)
+    tmp_path = os.path.join(tempfile.gettempdir(), "lead_extractor.db")
+    return tmp_path
+
+DB_PATH = _get_db_path()
 
 
 def _ensure_db_dir():
-    """Ensure the data directory exists."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    """Ensure the database directory exists (not needed for /tmp)."""
+    global DB_PATH
+    db_dir = os.path.dirname(DB_PATH)
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+    except PermissionError:
+        # If can't create directory, use /tmp as fallback
+        DB_PATH = os.path.join(tempfile.gettempdir(), "lead_extractor.db")
 
 
 @contextmanager
