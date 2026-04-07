@@ -10,7 +10,7 @@ app_port: 7860
 
 # Company Lead Extractor Tool
 
-A free, self-hosted tool that searches Google for companies by **Country** and **Business Type**, visits each website, and extracts:
+A free, self-hosted tool that searches Google Maps for companies by **Country** and **Business Type**, visits each website, and extracts:
 
 - **Company Name**
 - **Email Addresses**
@@ -20,15 +20,41 @@ A free, self-hosted tool that searches Google for companies by **Country** and *
 
 Exports all data to **CSV** or **Google Sheets** (free API).
 
+## 🆕 New: 2-Phase Extraction System
+
+### How It Works:
+
+**Phase 1 — Google Maps Search:**
+- Searches Google Maps and saves ALL listings (~300+) to database
+- Does NOT extract emails yet
+- Stores listings with status: pending/extracted/failed
+
+**Phase 2 — Batch Email Extraction:**
+- Extract emails from pending listings in batches (e.g., 50 at a time)
+- Random selection from remaining listings
+- Track progress: "You have 250 records remaining"
+- Continue until all listings are extracted
+
+### Benefits:
+- ✅ Never miss any listing from Google Maps
+- ✅ Extract in manageable batches
+- ✅ Resume extraction anytime
+- ✅ See exact remaining count
+- ✅ Download all extracted data for a keyword
+
 ## Features
 
-- Headless Chrome automation via Playwright
-- Regex-based email & phone extraction
-- Contact page discovery (visits `/contact`, `/about` pages automatically)
-- Real-time progress logs via Server-Sent Events
-- Anti-bot: random delays, user-agent rotation
-- Data cleaning: email DNS validation, E.164 phone formatting, fuzzy dedup
-- Optional Google Sheets push (free service account)
+- **2-Phase Extraction**: Search first, extract emails in batches later
+- **Search History Sidebar**: View all previous searches with stats
+- **Smart Deduplication**: Never extract the same listing twice
+- **Extended Maps Scraping**: Bypass 300-result limit with multiple queries
+- **Headless Chrome automation** via Playwright
+- **Regex-based email & phone extraction**
+- **Contact page discovery** (visits `/contact`, `/about` pages automatically)
+- **Real-time progress logs** via Server-Sent Events
+- **Anti-bot**: random delays, user-agent rotation
+- **Data cleaning**: email DNS validation, E.164 phone formatting, fuzzy dedup
+- **Optional Google Sheets push** (free service account)
 
 ## Tech Stack
 
@@ -54,6 +80,43 @@ python app.py
 # 3. Open
 # http://localhost:7860
 ```
+
+## Usage Guide
+
+### First Time Search:
+
+1. **Fill the form**: Country, City (optional), Business Type
+2. **Click "Start Extraction"**
+3. **System searches Google Maps** and saves all listings to database
+4. **Wait for Phase 1 to complete** (~300+ listings saved)
+5. **System prompts**: "You have 300 records remaining"
+6. **Choose**:
+   - **"Extract from Existing"** → Start batch email extraction
+   - **"Search Fresh on Maps"** → Ignore old data, search again
+
+### Batch Extraction:
+
+1. **Click "Extract" button** on any search in the sidebar
+2. **Enter batch size** (e.g., 50 records)
+3. **System extracts emails** from 50 random pending listings
+4. **Download CSV** with extracted emails
+5. **Sidebar updates**: Shows remaining count (e.g., 250)
+6. **Repeat** until all listings are extracted
+
+### Download All Data:
+
+- Click **"Download All"** button on any search in sidebar
+- Downloads CSV with ALL extracted emails for that keyword
+
+### Search History Sidebar:
+
+- **Left panel** shows all previous searches
+- **Stats per search**:
+  - 📊 Total listings found on Maps
+  - ✅ Extracted count
+  - ⏳ Remaining count
+- **Click any search** to load it into the form
+- **Actions**: Extract, Download All, Delete
 
 ## Google Sheets Setup (Optional)
 

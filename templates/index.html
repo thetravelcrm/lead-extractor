@@ -12,6 +12,103 @@
       min-height: 100vh; display: flex; flex-direction: column;
       align-items: center; padding: 2rem 1rem;
     }
+
+    /* Layout with sidebar */
+    .app-layout {
+      display: flex; gap: 1.5rem; width: 100%; max-width: 1200px;
+    }
+    @media (max-width: 900px) {
+      .app-layout { flex-direction: column; }
+      .sidebar { order: 2; }
+      .main-content { order: 1; }
+    }
+
+    /* Sidebar styles */
+    .sidebar {
+      width: 300px; flex-shrink: 0;
+    }
+    .sidebar .card {
+      background: #1a1d2e; border: 1px solid #2d3148; border-radius: 12px;
+      padding: 1.2rem; box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+      max-height: 80vh; overflow-y: auto;
+    }
+    .sidebar h2 {
+      font-size: 0.85rem; color: #64748b; text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .search-item {
+      background: #0f1117; border: 1px solid #2d3148; border-radius: 8px;
+      padding: 0.75rem; margin-bottom: 0.6rem; cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .search-item:hover { border-color: #6366f1; background: #13162a; }
+    .search-item.active { border-color: #6366f1; background: #1e1b4b; }
+    .search-item .query {
+      font-size: 0.82rem; font-weight: 600; color: #e2e8f0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .search-item .stats {
+      display: flex; gap: 0.5rem; margin-top: 0.4rem; flex-wrap: wrap;
+    }
+    .search-item .stat {
+      font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px;
+    }
+    .stat-total { background: #1e3a5f; color: #60a5fa; }
+    .stat-extracted { background: #14532d; color: #4ade80; }
+    .stat-remaining { background: #451a03; color: #fb923c; }
+    .search-item .date {
+      font-size: 0.65rem; color: #475569; margin-top: 0.3rem;
+    }
+    .search-item .actions {
+      display: flex; gap: 0.4rem; margin-top: 0.5rem;
+    }
+    .search-item .actions button {
+      font-size: 0.68rem; padding: 0.25rem 0.5rem; border-radius: 4px;
+    }
+    .btn-extract { background: #6366f1; color: #fff; }
+    .btn-download { background: #059669; color: #fff; }
+    .btn-delete { background: #dc2626; color: #fff; }
+    .no-searches {
+      text-align: center; color: #475569; font-size: 0.8rem;
+      padding: 2rem 0;
+    }
+
+    .main-content { flex: 1; min-width: 0; }
+
+    /* Modal styles */
+    .modal-overlay {
+      display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7); z-index: 1000;
+      justify-content: center; align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #1a1d2e; border: 1px solid #2d3148; border-radius: 12px;
+      padding: 2rem; max-width: 500px; width: 90%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .modal h3 {
+      font-size: 1.1rem; color: #e2e8f0; margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .modal .warning-box {
+      background: #451a03; border: 1px solid #92400e; border-radius: 8px;
+      padding: 1rem; margin-bottom: 1.5rem;
+    }
+    .modal .warning-box p {
+      font-size: 0.9rem; color: #fb923c; margin-bottom: 0.5rem;
+    }
+    .modal .warning-box .stats-detail {
+      font-size: 0.82rem; color: #fdba74;
+    }
+    .modal .modal-actions {
+      display: flex; gap: 0.75rem; flex-wrap: wrap;
+    }
+    .modal .modal-actions button { flex: 1; min-width: 140px; }
+    .btn-primary { background: linear-gradient(135deg, #6366f1, #818cf8); color: #fff; }
+    .btn-secondary { background: #059669; color: #fff; }
+    .btn-cancel { background: #1e2235; color: #94a3b8; }
     .card {
       background: #1a1d2e; border: 1px solid #2d3148; border-radius: 12px;
       width: 100%; max-width: 860px; padding: 2rem; margin-bottom: 1.5rem;
@@ -139,6 +236,22 @@
   <div class="source-badge">📍 Powered by Google Maps — fewer CAPTCHAs</div>
 </header>
 
+<!-- App Layout with Sidebar -->
+<div class="app-layout">
+
+  <!-- Sidebar: Search History -->
+  <aside class="sidebar">
+    <div class="card">
+      <h2>📋 Search History</h2>
+      <div id="search-history-list">
+        <div class="no-searches">No searches yet.<br/>Start a new search to see history.</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
 <!-- Form -->
 <div class="card">
 
@@ -174,7 +287,7 @@
     </div>
 
     <div class="form-group">
-      <label for="max_results">Max Companies</label>
+      <label for="max_results">Max Companies per Batch</label>
       <input type="number" id="max_results" value="50" min="5" max="200" />
     </div>
 
@@ -251,7 +364,45 @@
   </div>
 </div>
 
-<footer>100% free · Google Maps · No paid APIs</footer>
+<!-- Modal: Existing Search Found -->
+<div class="modal-overlay" id="modal-existing-search">
+  <div class="modal">
+    <h3>⚠️ Existing Search Found</h3>
+    <div class="warning-box">
+      <p id="modal-message">You already have records for this search.</p>
+      <div class="stats-detail" id="modal-stats"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="extractFromExisting()">📧 Extract from Existing</button>
+      <button class="btn-primary" onclick="forceNewSearch()">🔍 Search Fresh on Maps</button>
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Batch Extraction -->
+<div class="modal-overlay" id="modal-batch-extract">
+  <div class="modal">
+    <h3>📧 Batch Email Extraction</h3>
+    <div class="warning-box" style="background:#1e3a5f; border-color:#2563eb;">
+      <p id="batch-modal-message" style="color:#60a5fa;">Extract emails from pending listings.</p>
+      <div class="stats-detail" id="batch-modal-stats" style="color:#93c5fd;"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:1rem;">
+      <label for="batch-size-input">How many records to extract?</label>
+      <input type="number" id="batch-size-input" value="50" min="5" max="200" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="startBatchExtraction()">Start Extraction</button>
+      <button class="btn-cancel" onclick="closeBatchModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+</div> <!-- Close main-content -->
+</div> <!-- Close app-layout -->
+
+<footer>100% free · Google Maps · No paid APIs · 2-Phase Extraction</footer>
 
 <script>
 // ── Countries ─────────────────────────────────────────────────────────────
@@ -465,6 +616,9 @@ function handleSSE(e) {
     localStorage.removeItem('lead_job');  // job complete — clear saved state
     document.getElementById('resume-banner').style.display = 'none';
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+    // Refresh sidebar to update stats
+    loadSearchHistory();
   }
   if (msg.level === 'error') { 
     eventSource.close(); setRunning(false); 
@@ -549,6 +703,322 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function currentTime() { return new Date().toTimeString().substring(0,8); }
+
+// ── 2-Phase System: Sidebar & Modal Functions ────────────────────────────
+
+let pendingSearchQuery = null;
+let pendingBatchQuery = null;
+
+// Load search history on page load
+window.addEventListener('load', () => {
+  loadSearchHistory();
+});
+
+async function loadSearchHistory() {
+  try {
+    const resp = await fetch('/api/search_history');
+    const data = await resp.json();
+
+    if (data.error) {
+      console.error('Failed to load search history:', data.error);
+      return;
+    }
+
+    renderSearchHistory(data.searches || []);
+  } catch (err) {
+    console.error('Error loading search history:', err);
+  }
+}
+
+function renderSearchHistory(searches) {
+  const container = document.getElementById('search-history-list');
+
+  if (!searches.length) {
+    container.innerHTML = '<div class="no-searches">No searches yet.<br/>Start a new search to see history.</div>';
+    return;
+  }
+
+  container.innerHTML = searches.map(search => {
+    const date = new Date(search.updated_at).toLocaleDateString();
+    const hasRemaining = search.remaining > 0;
+
+    return `
+      <div class="search-item" data-query="${escHtml(search.query)}">
+        <div class="query" title="${escHtml(search.query)}">${escHtml(search.query)}</div>
+        <div class="stats">
+          <span class="stat stat-total">📊 ${search.total_listings}</span>
+          <span class="stat stat-extracted">✅ ${search.extracted}</span>
+          ${hasRemaining ? `<span class="stat stat-remaining">⏳ ${search.remaining}</span>` : ''}
+        </div>
+        <div class="date">Updated: ${date}</div>
+        <div class="actions">
+          ${hasRemaining ? `<button class="btn-extract" onclick="event.stopPropagation(); openBatchModal('${escHtml(search.query)}', ${search.remaining})">Extract</button>` : ''}
+          <button class="btn-download" onclick="event.stopPropagation(); downloadAllForQuery('${escHtml(search.query)}')">Download All</button>
+          <button class="btn-delete" onclick="event.stopPropagation(); deleteSearch('${escHtml(search.query)}')">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Add click handlers to load query into form
+  container.querySelectorAll('.search-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const query = item.dataset.query;
+      loadQueryIntoForm(query);
+    });
+  });
+}
+
+function loadQueryIntoForm(query) {
+  // Parse query to extract country, city, business_type
+  // Format: "business_type in city, country" or "business_type in country"
+  const match = query.match(/^(.+?)\\s+in\\s+(.+)$/);
+  if (match) {
+    document.getElementById('business_type').value = match[1].trim();
+    const location = match[2].trim();
+
+    // Check if location has city,country format
+    const parts = location.split(',');
+    if (parts.length > 1) {
+      document.getElementById('city').value = parts[0].trim();
+      document.getElementById('country-input').value = parts.slice(1).join(',').trim();
+    } else {
+      document.getElementById('city').value = '';
+      document.getElementById('country-input').value = location;
+    }
+
+    updateCityColumn();
+  }
+}
+
+function openBatchModal(query, remaining) {
+  pendingBatchQuery = query;
+  document.getElementById('batch-modal-message').textContent = `Extract emails for: ${query}`;
+  document.getElementById('batch-modal-stats').textContent = `${remaining} listings available for extraction`;
+
+  // Set max batch size to remaining or 200, whichever is smaller
+  const batchSizeInput = document.getElementById('batch-size-input');
+  batchSizeInput.max = Math.min(remaining, 200);
+  batchSizeInput.value = Math.min(50, remaining);
+
+  document.getElementById('modal-batch-extract').classList.add('active');
+}
+
+function closeBatchModal() {
+  document.getElementById('modal-batch-extract').classList.remove('active');
+  pendingBatchQuery = null;
+}
+
+async function startBatchExtraction() {
+  if (!pendingBatchQuery) return;
+
+  const batchSize = document.getElementById('batch-size-input').value;
+  closeBatchModal();
+
+  // Start extraction
+  resetUI();
+  setRunning(true);
+
+  const fd = new FormData();
+  fd.append('query', pendingBatchQuery);
+  fd.append('batch_size', batchSize);
+
+  if (document.getElementById('use_sheets').checked) {
+    fd.append('use_sheets', 'on');
+    fd.append('sheets_id', document.getElementById('sheets_id').value.trim());
+  }
+
+  let resp;
+  try {
+    resp = await fetch('/api/extract_batch', { method: 'POST', body: fd });
+  } catch (err) {
+    appendLog('error', 'Server unreachable: ' + err.message, '--:--:--');
+    setRunning(false);
+    return;
+  }
+
+  const data = await resp.json();
+  if (data.error) {
+    appendLog('error', data.error, '--:--:--');
+    setRunning(false);
+    return;
+  }
+
+  currentJobId = data.job_id;
+  appendLog('info', `Batch extraction started — ${data.batch_size} records from "${data.query}"`, currentTime());
+  appendLog('info', `Remaining after this batch: ${data.remaining_after} listings`, currentTime());
+
+  // Save to localStorage for resume
+  localStorage.setItem('lead_job', JSON.stringify({ jobId: currentJobId, label: `Batch: ${data.query}` }));
+  document.getElementById('resume-banner').style.display = 'none';
+
+  openStream();
+}
+
+function downloadAllForQuery(query) {
+  window.location.href = `/api/download_all/${encodeURIComponent(query)}`;
+}
+
+async function deleteSearch(query) {
+  if (!confirm(`Delete "${query}" and all its data?`)) return;
+
+  const fd = new FormData();
+  fd.append('query', query);
+
+  try {
+    const resp = await fetch('/api/delete_search', { method: 'POST', body: fd });
+    const data = await resp.json();
+
+    if (data.ok) {
+      appendLog('success', `Deleted search: ${query}`, currentTime());
+      loadSearchHistory(); // Refresh sidebar
+    } else {
+      appendLog('error', data.error || 'Failed to delete', currentTime());
+    }
+  } catch (err) {
+    appendLog('error', 'Delete failed: ' + err.message, currentTime());
+  }
+}
+
+// ── Modified startJob to check for existing searches ─────────────────────
+
+const originalStartJob = startJob;
+startJob = async function() {
+  const country      = document.getElementById('country-input').value.trim();
+  const city         = document.getElementById('city').value.trim();
+  const businessType = document.getElementById('business_type').value.trim();
+
+  if (!country || !businessType) {
+    alert('Please select a country and enter a business type.');
+    return;
+  }
+
+  const query = `${businessType} in ${city ? city + ', ' : ''}${country}`;
+
+  // Check if query already exists
+  const fd = new FormData();
+  fd.append('query', query);
+
+  try {
+    const resp = await fetch('/api/search_status', { method: 'POST', body: fd });
+    const data = await resp.json();
+
+    if (data.exists && data.stats.remaining > 0) {
+      // Show modal with existing search info
+      pendingSearchQuery = query;
+      document.getElementById('modal-message').textContent = data.message;
+      document.getElementById('modal-stats').innerHTML = `
+        Total on Maps: <strong>${data.stats.total_listings}</strong> |
+        Extracted: <strong>${data.stats.extracted}</strong> |
+        Remaining: <strong>${data.stats.remaining}</strong>
+      `;
+      document.getElementById('modal-existing-search').classList.add('active');
+      return;
+    }
+  } catch (err) {
+    console.error('Error checking search status:', err);
+  }
+
+  // No existing search or user chose to proceed
+  await originalStartJob();
+};
+
+// ── Modal Action Handlers ─────────────────────────────────────────────────
+
+function closeModal() {
+  document.getElementById('modal-existing-search').classList.remove('active');
+  pendingSearchQuery = null;
+}
+
+async function extractFromExisting() {
+  if (!pendingSearchQuery) return;
+  closeModal();
+
+  // Parse query and open batch modal
+  const match = pendingSearchQuery.match(/^(.+?)\\s+in\\s+(.+)$/);
+  if (match) {
+    document.getElementById('business_type').value = match[1].trim();
+    const location = match[2].trim();
+    const parts = location.split(',');
+
+    if (parts.length > 1) {
+      document.getElementById('city').value = parts[0].trim();
+      document.getElementById('country-input').value = parts.slice(1).join(',').trim();
+    } else {
+      document.getElementById('city').value = '';
+      document.getElementById('country-input').value = location;
+    }
+  }
+
+  // Get stats and open batch modal
+  const fd = new FormData();
+  fd.append('query', pendingSearchQuery);
+
+  try {
+    const resp = await fetch('/api/search_status', { method: 'POST', body: fd });
+    const data = await resp.json();
+
+    if (data.exists) {
+      openBatchModal(pendingSearchQuery, data.stats.remaining);
+    }
+  } catch (err) {
+    appendLog('error', 'Failed to get search stats: ' + err.message, currentTime());
+  }
+}
+
+async function forceNewSearch() {
+  if (!pendingSearchQuery) return;
+  closeModal();
+
+  // Call original startJob with force flag
+  resetUI();
+  setRunning(true);
+
+  const country      = document.getElementById('country-input').value.trim();
+  const city         = document.getElementById('city').value.trim();
+  const businessType = document.getElementById('business_type').value.trim();
+  const maxResults   = document.getElementById('max_results').value;
+  const useSheets    = document.getElementById('use_sheets').checked;
+  const sheetsId     = document.getElementById('sheets_id').value.trim();
+
+  const fd = new FormData();
+  fd.append('country', country);
+  fd.append('city', city);
+  fd.append('business_type', businessType);
+  fd.append('max_results', maxResults);
+  fd.append('force_search', 'true');
+
+  if (useSheets) {
+    fd.append('use_sheets', 'on');
+    fd.append('sheets_id', sheetsId);
+  }
+
+  let resp;
+  try {
+    resp = await fetch('/start', { method: 'POST', body: fd });
+  } catch (err) {
+    appendLog('error', 'Server unreachable: ' + err.message, '--:--:--');
+    setRunning(false);
+    return;
+  }
+
+  const data = await resp.json();
+  if (data.error) {
+    appendLog('error', data.error, '--:--:--');
+    setRunning(false);
+    return;
+  }
+
+  currentJobId = data.job_id;
+  const location = city ? `${city}, ${country}` : country;
+  const label = `${businessType} in ${location}`;
+
+  localStorage.setItem('lead_job', JSON.stringify({ jobId: currentJobId, label }));
+  document.getElementById('resume-banner').style.display = 'none';
+
+  appendLog('info', `Fresh search started — ${label}`, currentTime());
+  openStream();
+}
 </script>
 </body>
 </html>

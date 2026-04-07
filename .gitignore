@@ -19,6 +19,11 @@ credentials.json
 /tmp/leads_*.csv
 *.csv
 
+# Database (SQLite)
+data/
+*.db
+*.sqlite
+
 # IDE
 .vscode/
 .idea/

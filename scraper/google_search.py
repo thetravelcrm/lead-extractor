@@ -3,6 +3,10 @@ scraper/google_search.py
 ------------------------
 Scrapes Google Maps for business listings using Playwright.
 Uses domcontentloaded (not networkidle) to avoid timeout on Maps.
+
+Supports pagination/offsets to fetch more than 300 results by:
+1. Using multiple search variations (adding area codes, nearby areas)
+2. Multiple scroll sessions with different starting points
 """
 
 import asyncio
@@ -21,6 +25,29 @@ def build_query(country: str, business_type: str, city: str = "") -> str:
     """
     location = f"{city}, {country}" if city.strip() else country
     return f"{business_type} in {location}"
+
+
+def build_extended_queries(base_query: str, city: str = "") -> List[str]:
+    """
+    Build multiple query variations to bypass Google Maps 300-result limit.
+    Returns a list of queries to try sequentially.
+    """
+    queries = [base_query]
+
+    # Add area-specific variations if city is provided
+    if city:
+        area_modifiers = [
+            "near me",
+            "nearby",
+            "top rated",
+            "best",
+            "popular",
+            "local",
+        ]
+        for modifier in area_modifiers:
+            queries.append(f"{base_query} {modifier}")
+
+    return queries
 
 
 async def search_google_maps(
@@ -274,3 +301,54 @@ async def search_google_maps(
 
     emit_fn("success", f"Google Maps: collected {len(results)} listings.")
     return results
+
+
+async def search_google_maps_extended(
+    query: str,
+    max_results: int,
+    emit_fn: Callable,
+    city: str = "",
+) -> List[Dict]:
+    """
+    Extended search that tries multiple query variations to bypass
+    the ~300 result limit on Google Maps.
+
+    Strategy:
+    1. First search with the base query
+    2. If results < max_results, try extended queries
+    3. Merge results, deduplicate by website_url
+    """
+    all_results = []
+    seen_urls = set()
+
+    # Get extended queries
+    extended_queries = build_extended_queries(query, city)
+
+    for idx, q in enumerate(extended_queries):
+        if len(all_results) >= max_results:
+            break
+
+        if idx > 0:
+            emit_fn("info", f"Trying extended query {idx+1}/{len(extended_queries)}: {q[:60]}...")
+            await asyncio.sleep(random.uniform(2, 4))  # Delay between queries
+
+        try:
+            results = await search_google_maps(q, max_results - len(all_results), emit_fn)
+
+            # Deduplicate by website_url
+            for result in results:
+                url = result.get("website_url", "").strip().rstrip("/")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_results.append(result)
+                elif not url:  # Keep listings without website URLs
+                    all_results.append(result)
+
+            emit_fn("info", f"Extended query {idx+1}: found {len(results)} listings (total unique: {len(all_results)})")
+
+        except Exception as exc:
+            emit_fn("warn", f"Extended query {idx+1} failed: {exc}")
+            continue
+
+    emit_fn("success", f"Extended search complete: {len(all_results)} unique listings from {len(extended_queries)} queries.")
+    return all_results
