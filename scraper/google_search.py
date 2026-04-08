@@ -344,37 +344,55 @@ async def search_google_maps(
                         except:
                             pass
 
-                        # Extract website
+                        # Extract website from card (direct link in listing)
                         website_url = ""
                         try:
-                            web_links = await card.locator('a[data-value="Website"], a[aria-label*="Website" i]').all()
-                            for link in web_links:
-                                href = await link.get_attribute("href")
-                                if href and "google.com" not in href and "/maps" not in href:
-                                    website_url = href.split("?")[0]
+                            # Try multiple selectors for website link
+                            web_selectors = [
+                                'a[data-value="Website"]',
+                                'a[aria-label*="Website" i]',
+                                'a[aria-label*="website" i]',
+                                'a[href*="http"]:not([href*="google"]):not([href*="/maps"]):not([href*="gstatic"])',
+                            ]
+                            for sel in web_selectors:
+                                web_links = await card.locator(sel).all()
+                                for link in web_links:
+                                    href = await link.get_attribute("href")
+                                    if href and len(href) > 10 and "google.com" not in href and "/maps" not in href and "gstatic.com" not in href:
+                                        website_url = href.split("?")[0]
+                                        break
+                                if website_url:
                                     break
                         except:
                             pass
 
-                        # Fallback: click to get website from side panel
-                        if not website_url and len(results) < 30:
+                        # Fallback: Click card to open side panel and get website
+                        # Do this for ALL results, not just first 30!
+                        if not website_url:
                             try:
                                 await card.click(timeout=2000)
-                                await page.wait_for_timeout(1500)
+                                await page.wait_for_timeout(2000)
 
-                                for panel_sel in ['a[data-item-id="authority"]', 'a[aria-label*="website" i]']:
+                                # Try multiple selectors for website in side panel
+                                panel_selectors = [
+                                    'a[data-item-id="authority"]',
+                                    'a[aria-label*="website" i]',
+                                    'a[href*="http"]:not([href*="google"]):not([href*="/maps"]):not([href*="gstatic"])',
+                                ]
+                                for panel_sel in panel_selectors:
                                     try:
-                                        el = page.locator(panel_sel).first
-                                        if await el.count() > 0:
-                                            href = await el.get_attribute("href")
-                                            if href and "google.com" not in href and "/maps" not in href:
+                                        web_el = page.locator(panel_sel).first
+                                        if await web_el.count() > 0:
+                                            href = await web_el.get_attribute("href")
+                                            if href and len(href) > 10 and "google.com" not in href and "/maps" not in href and "gstatic.com" not in href:
                                                 website_url = href.split("?")[0]
                                                 break
                                     except:
                                         continue
 
+                                # Close side panel
                                 await page.keyboard.press("Escape")
-                                await page.wait_for_timeout(400)
+                                await page.wait_for_timeout(500)
                             except:
                                 try:
                                     await page.keyboard.press("Escape")
