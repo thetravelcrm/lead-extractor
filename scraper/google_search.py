@@ -19,12 +19,66 @@ from config.settings import USER_AGENTS, DELAY_PAGE_LOAD
 
 def build_query(country: str, business_type: str, city: str = "") -> str:
     """
-    Build the search query.
-    If city is provided: "plumbers in Dubai, UAE"
-    Otherwise:           "plumbers in United Arab Emirates"
+    Build the search query with intelligent cleaning.
+
+    Handles cases where user enters full query in business_type field:
+    - "travel agency in lucknow" → extracts "travel agency"
+    - "restaurants in dubai" → extracts "restaurants"
+
+    Examples:
+    - "travel agency in lucknow" + city="Lucknow" → "travel agency in Lucknow, India"
+    - "travel agency" + city="Lucknow" → "travel agency in Lucknow, India"
+    - "restaurants in dubai" + city="" → "restaurants in dubai, India"
+    - "restaurants in dubai, UAE" + city="" → "restaurants in dubai, UAE"
     """
-    location = f"{city}, {country}" if city.strip() else country
-    return f"{business_type} in {location}"
+    import re
+
+    # Clean business_type: remove location info if user accidentally included it
+    cleaned_business = business_type.strip()
+    extracted_location = None
+
+    # Pattern: Detect "business_type in location" format
+    # Matches: "travel agency in lucknow", "restaurants in dubai uae", etc.
+    location_pattern = re.compile(
+        r'^(.+?)\s+in\s+([a-zA-Z\s,]+)$',
+        re.IGNORECASE
+    )
+
+    match = location_pattern.search(cleaned_business)
+    if match:
+        extracted_business = match.group(1).strip()
+        extracted_location = match.group(2).strip()
+
+        # Check if extracted location matches user's city/country input
+        user_city_lower = city.lower().strip()
+        user_country_lower = country.lower().strip()
+        extracted_location_lower = extracted_location.lower()
+
+        # If the extracted location contains the user's city or country, use cleaned business
+        if (user_city_lower and user_city_lower in extracted_location_lower) or \
+           (user_country_lower and user_country_lower in extracted_location_lower) or \
+           extracted_location_lower in user_city_lower or \
+           len(extracted_location.split()) <= 5:  # Reasonable location name
+            cleaned_business = extracted_business
+
+    # Build final query
+    if city.strip():
+        # User provided city, use it
+        location = f"{city}, {country}"
+    elif extracted_location:
+        # User didn't provide city but included location in business_type
+        # Use the extracted location with country as backup
+        if ',' in extracted_location:
+            # Already has city, country format
+            location = extracted_location
+        else:
+            # Just city name, append country
+            location = f"{extracted_location}, {country}"
+    else:
+        # No city provided anywhere, just use country
+        location = country
+
+    return f"{cleaned_business} in {location}"
 
 
 def build_extended_queries(base_query: str, city: str = "") -> List[str]:
