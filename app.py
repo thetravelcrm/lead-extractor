@@ -48,6 +48,9 @@ from storage.database import (
 # Initialize database on startup
 init_db()
 
+# Application version
+APP_VERSION = "V2.5"
+
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
@@ -62,7 +65,7 @@ _jobs_lock = threading.Lock()
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", version=APP_VERSION)
 
 
 @app.route("/start", methods=["POST"])

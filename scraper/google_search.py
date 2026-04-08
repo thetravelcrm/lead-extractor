@@ -201,139 +201,136 @@ async def search_google_maps(
                 return results
 
             emit_fn("info", "Google Maps loaded. Scrolling for results...")
-            await page.wait_for_timeout(4000)  # Longer initial wait for full JS render
+            await page.wait_for_timeout(5000)  # Longer wait for full JS render
 
             scroll_attempts = 0
-            max_scrolls = max(30, max_results // 2)  # More scrolls: 300 results → 150 scrolls
+            max_scrolls = max(30, max_results // 2)
             last_count = 0
-            no_new_results_count = 0  # Track consecutive scrolls with no new results
-            stable_count = 0  # Track how many times result count stays same
+            no_new_results_count = 0
 
             while len(results) < max_results and scroll_attempts < max_scrolls:
 
-                # Wait for new content to render after scroll
-                await page.wait_for_timeout(1000)
+                # Wait for content to stabilize after scroll
+                await page.wait_for_timeout(1500)
 
-                # ── Extract visible listing cards ──────────────────────
-                # Try multiple selectors for Google Maps listing cards
+                # ── Extract listing cards from sidebar ─────────────────
+                # CRITICAL: Use selectors that target sidebar results ONLY, not map controls
                 cards = []
                 best_selector = None
+
                 for card_selector in [
-                    'div[role="article"]',  # Most reliable - article role
-                    'a[href*="/maps/place/"]',
-                    'div.Nv2PK',
-                    'div[jsaction*="click"]',
+                    # Primary: Business listing containers in sidebar
+                    'div[role="article"] div[tabindex="0"]',
+                    # Secondary: Specific business card structure
+                    'div.fontBodyMedium div[tabindex="0"]',
+                    # Fallback: Any clickable div in the results feed
+                    'div[role="feed"] div[tabindex="0"]',
                 ]:
                     try:
                         found_cards = await page.locator(card_selector).all()
-                        if found_cards and len(found_cards) > len(cards):
-                            cards = found_cards
+                        # Filter out non-business elements (map controls, instructions)
+                        valid_cards = []
+                        for card in found_cards:
+                            try:
+                                aria_label = await card.get_attribute("aria-label")
+                                # Skip if it's map instructions or UI elements
+                                if (aria_label and
+                                    len(aria_label) > 5 and
+                                    "arrow keys" not in aria_label.lower() and
+                                    "pan the map" not in aria_label.lower() and
+                                    "get details" not in aria_label.lower()):
+                                    valid_cards.append(card)
+                            except:
+                                continue
+
+                        if valid_cards and len(valid_cards) > len(cards):
+                            cards = valid_cards
                             best_selector = card_selector
-                    except Exception:
+                    except Exception as e:
                         continue
 
                 if cards:
-                    emit_fn("info", f"Using selector: {best_selector}, found {len(cards)} cards (total unique: {len(results)})")
+                    emit_fn("info", f"Found {len(cards)} business cards using: {best_selector} (total unique: {len(results)})")
                 else:
-                    emit_fn("warn", "No listing cards found. Trying to scroll anyway...")
+                    emit_fn("warn", "No valid business cards found. Scrolling to load more...")
 
                 for card in cards:
                     if len(results) >= max_results:
                         break
                     try:
-                        # Get name from aria-label or text content
+                        # Get business name from aria-label
                         name = (await card.get_attribute("aria-label") or "").strip()
-                        if not name:
-                            # Try to get name from heading or first text element
-                            try:
-                                heading = card.locator('h1, h2, h3, [role="heading"], .fontTitleMedium').first
-                                name = await heading.inner_text(timeout=500)
-                                name = name.strip().split('\n')[0]  # Get first line only
-                            except:
-                                pass
 
-                        if not name or len(name) < 2 or name in seen_names:
+                        # Skip if name is too short or looks like UI text
+                        if (not name or
+                            len(name) < 3 or
+                            "arrow keys" in name.lower() or
+                            "pan the map" in name.lower() or
+                            name in seen_names):
                             continue
+
                         seen_names.add(name)
 
-                        # Walk up to find the enclosing listing container
-                        container = card.locator("xpath=ancestor::div[@data-result-index or contains(@class,'Nv2PK') or @jsaction][1]").first
-
-                        # Category — small descriptive text in card
+                        # Category - business type text
                         category = ""
-                        for cat_sel in [
-                            'span.fontBodyMedium > span:first-child',
-                            'div.fontBodyMedium > span',
-                            'span[jsan*="category"]',
-                        ]:
-                            try:
-                                el = container.locator(cat_sel).first
-                                txt = (await el.inner_text(timeout=400)).strip()
-                                if txt and not any(c.isdigit() for c in txt[:3]):
-                                    category = txt.split("·")[0].strip()
-                                    break
-                            except Exception:
-                                pass
+                        try:
+                            # Look for category text within the card
+                            cat_elements = await card.locator('span.fontBodyMedium').all()
+                            if cat_elements:
+                                category = await cat_elements[0].inner_text(timeout=500)
+                                category = category.strip().split('·')[0].strip()
+                        except:
+                            pass
 
-                        # Website URL — look for external link in card
+                        # Website URL - check if listing has website
                         website_url = ""
-                        for web_selector in [
-                            'a[data-value="Website"]',
-                            'a[aria-label*="website" i]',
-                            'a[href*="http"]:not([href*="google"]):not([href*="/maps"])',
-                            'div[data-item-id*="authority"] a',
-                        ]:
-                            try:
-                                web_links = await container.locator(web_selector).all()
-                                for wl in web_links:
-                                    href = (await wl.get_attribute("href") or "").strip()
-                                    if href.startswith("http") and "google" not in href and "/maps" not in href:
-                                        website_url = href.split("?")[0]
-                                        break
-                                if website_url:
-                                    break
-                            except Exception:
-                                pass
+                        try:
+                            # Look for website button/link in the card
+                            website_btn = card.locator('a[data-value="Website"], a[aria-label*="Website" i]').first
+                            if await website_btn.count() > 0:
+                                href = await website_btn.get_attribute("href")
+                                if href and "google" not in href and "/maps" not in href:
+                                    website_url = href.split("?")[0]
+                        except:
+                            pass
 
-                        # Fallback: click listing to open side panel and grab website
+                        # Fallback: Click card to open side panel for website
                         if not website_url:
                             try:
-                                await card.click(timeout=3000)
+                                await card.click(timeout=2000)
                                 await page.wait_for_timeout(2000)
-                                
-                                # Try multiple selectors for website link in side panel
+
+                                # Try to find website in side panel
                                 for panel_selector in [
                                     'a[data-item-id="authority"]',
                                     'a[aria-label*="website" i]',
-                                    'div[data-section-id="apiv3link"] a',
-                                    'a[href*="http"]:not([href*="google"]):not([href*="/maps"])',
                                 ]:
                                     try:
                                         web_el = page.locator(panel_selector).first
-                                        if await web_el.is_visible(timeout=2000):
-                                            href = (await web_el.get_attribute("href") or "").strip()
-                                            if href.startswith("http") and "google" not in href and "/maps" not in href:
+                                        if await web_el.is_visible(timeout=1500):
+                                            href = await web_el.get_attribute("href")
+                                            if href and "google" not in href and "/maps" not in href:
                                                 website_url = href.split("?")[0]
                                                 break
-                                    except Exception:
+                                    except:
                                         continue
-                                
-                                # Press Escape to close the side panel
+
+                                # Close side panel
                                 await page.keyboard.press("Escape")
                                 await page.wait_for_timeout(500)
-                            except Exception:
+                            except:
                                 try:
                                     await page.keyboard.press("Escape")
-                                except Exception:
+                                except:
                                     pass
 
                         results.append({
-                            "name":        name,
-                            "category":    category,
+                            "name": name,
+                            "category": category,
                             "website_url": website_url,
                         })
 
-                    except Exception:
+                    except Exception as e:
                         continue
 
                 emit_fn(
