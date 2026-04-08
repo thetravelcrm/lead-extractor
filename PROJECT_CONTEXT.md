@@ -7,31 +7,34 @@
 ## 📋 Project Overview
 
 **Name:** Email Extractor Tool  
-**Purpose:** Free, self-hosted B2B lead generation tool that extracts emails from Google Maps listings.  
+**Version:** 2.0.0 (2-Phase Extraction System)  
+**Purpose:** Free, self-hosted B2B lead generation tool that extracts emails from Google Maps listings with 2-phase batch extraction.  
 **Deployment:** Hugging Face Spaces (port 7860)  
-**Tech Stack:** Python 3.11 + Flask + Playwright + Gunicorn
+**Tech Stack:** Python 3.11 + Flask + Playwright + Gunicorn + SQLite
 
 ---
 
-## 🏗️ Architecture
+## ️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Flask (app.py)                           │
-│  Routes: /, /start, /stream/<id>, /download/<id>, /abort   │
-│  Orchestrates: Maps search → Email extraction → CSV export │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-          ┌───────────────┼───────────────┐
-          │               │               │
-          ▼               ▼               ▼
-    ┌───────────┐  ┌───────────┐  ┌───────────┐
-    │ scraper/  │  │processor/ │  │ storage/  │
-    │ website_  │→ │lead_model │→ │csv_writer │
-    │ visitor.py│  │cleaner.py │  │sheets_    │
-    │ extractor.│  │classifier.│  │writer.py  │
-    │ google_   │  └───────────┘  └───────────┘
-    │ search.py │
+┌─────────────────────────────────────────────────────────────────┐
+│                    Flask (app.py)                               │
+│  Routes: /, /start, /stream/<id>, /download/<id>, /abort       │
+│  NEW: /api/search_history, /api/search_status, /api/search_maps│
+│  NEW: /api/extract_batch, /api/download_all/<query>, /api/delete│
+│  Orchestrates: Maps search → DB save → Batch extraction → CSV  │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+          ┌────────────────────┼────────────────────┐
+          │                    │                    │
+          ▼                    ▼                    ▼
+    ┌───────────┐       ┌───────────┐       ┌───────────┐
+    │ scraper/  │       │processor/ │       │ storage/  │
+    │ website_  │──────→│lead_model │──────→│csv_writer │
+    │ visitor.py│       │cleaner.py │       │sheets_    │
+    │ extractor.│       │classifier.│       │writer.py  │
+    │ google_   │       └───────────┘       │database.py│◄── NEW
+    │ search.py │                           └───────────┘
     │ web_search│
     └─────┬─────┘
           │ emit()
@@ -40,6 +43,10 @@
     │ sse/      │
     │event_stream│→ Frontend (SSE real-time updates)
     └───────────┘
+
+NEW: SQLite Database (data/searches.db or /tmp/lead_extractor.db)
+  - searches: Unique search queries with metadata
+  - listings: Individual business listings (pending/extracted/failed)
 ```
 
 ---
@@ -47,25 +54,86 @@
 ## 📁 File Structure & Functions
 
 ### `app.py` — Main Flask Application
-**Role:** Pipeline orchestration, route handling, job management
+**Role:** Pipeline orchestration, route handling, job management, 2-phase system
 
 | Function | Purpose |
 |----------|---------|
 | `index()` | Renders homepage UI |
-| `start_job()` | Validates input, creates job, spawns background thread |
+| `start_job()` | Validates input, creates job, spawns background thread (legacy mode) |
 | `stream(job_id)` | SSE endpoint for real-time progress updates |
 | `download(job_id)` | Serves CSV file download |
 | `abort(job_id)` | Cancels running job |
 | `status(job_id)` | Returns job status + CSV readiness |
 | `resume(job_id)` | Reconnects to lost SSE stream |
-| `_run_pipeline()` | **Main pipeline:** Stage 1 (Maps) → Stage 2 (Website visit) → Stage 2.5 (Web search) → Stage 3 (Dedup) → Stage 4 (Save) |
+| **`search_history()`** | **NEW: GET /api/search_history — Returns all searches with stats** |
+| **`search_status()`** | **NEW: POST /api/search_status — Check if query exists, get remaining count** |
+| **`search_maps_only()`** | **NEW: POST /api/search_maps — Phase 1: Search Maps only, save to DB** |
+| **`extract_batch()`** | **NEW: POST /api/extract_batch — Phase 2: Extract emails in batches** |
+| **`download_all_extracted()`** | **NEW: GET /api/download_all/<query> — Download all data for a keyword** |
+| **`delete_search_route()`** | **NEW: POST /api/delete_search — Delete search and its data** |
+| `_run_pipeline()` | **Main pipeline (legacy):** Maps → Email extraction → CSV |
+| **`_run_maps_search()`** | **NEW: Phase 1 worker — Searches Maps, saves listings to database** |
+| **`_run_batch_extraction()`** | **NEW: Phase 2 worker — Extracts emails from pending listings** |
+| **`get_all_extracted_leads_by_query()`** | **NEW: Helper to fetch all extracted leads for CSV export** |
 | `_finish_job()` | Marks job complete, emits final stats |
 
 **Key Features:**
-- URL deduplication (skips duplicate websites from Maps)
-- Job timeout protection (configurable, default 60 min)
-- Rate limiting (15 req/min)
-- Multiple emails per company → separate rows with "Company Name 1", "Company Name 2" naming
+- **2-Phase Extraction:** Phase 1 (Maps search) → Phase 2 (Batch email extraction)
+- **Database Integration:** SQLite for persistent search tracking
+- **URL deduplication** (skips duplicate websites from Maps)
+- **Job timeout protection** (configurable, default 60 min)
+- **Rate limiting** (15 req/min)
+- **Multiple emails per company** → separate rows with "Company Name 1", "Company Name 2" naming
+- **Extended Maps scraping** (500+ results via multiple query variations)
+
+---
+
+### `storage/database.py` — SQLite Database Layer ⭐ NEW
+**Role:** Persistent storage for search history and listing tracking
+
+| Function | Purpose |
+|----------|---------|
+| `init_db()` | Initialize database tables (searches, listings) |
+| `get_db()` | Context manager for database connections |
+| `upsert_search()` | Insert/update search query, return search ID |
+| `get_search_by_query()` | Get search details by query string |
+| `get_search_stats()` | Get total/extracted/remaining counts for a query |
+| `get_all_searches()` | Get all searches with stats (for sidebar) |
+| `delete_search()` | Delete search and all its listings |
+| `bulk_insert_listings()` | Insert multiple listings from Maps search |
+| `get_pending_listings()` | Get random pending listings for batch extraction |
+| `get_extracted_listings()` | Get all extracted listings for a search |
+| `update_listing_status()` | Update listing status (pending→extracted/failed) |
+| `get_all_extracted_leads()` | Get all extracted lead data (for CSV export) |
+
+**Database Schema:**
+```sql
+-- searches: Unique search queries
+CREATE TABLE searches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL UNIQUE,
+    country TEXT NOT NULL,
+    city TEXT DEFAULT '',
+    business_type TEXT NOT NULL,
+    total_listings INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- listings: Individual business listings from Google Maps
+CREATE TABLE listings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    search_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT DEFAULT '',
+    website_url TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'extracted', 'failed', 'no_website')),
+    extracted_at TEXT,
+    lead_data TEXT,  -- JSON: {emails, company_name, whatsapp_phone, etc.}
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (search_id) REFERENCES searches(id) ON DELETE CASCADE
+);
+```
 
 ---
 
@@ -112,12 +180,16 @@
 |----------|---------|
 | `build_query(country, business_type, city)` | Builds search query string |
 | `search_google_maps(query, max_results, emit_fn)` | **Main function:** Opens Maps → accepts cookies → scrolls results → extracts listings |
+| **`build_extended_queries()`** | **NEW: Builds multiple query variations to bypass 300-result limit** |
+| **`search_google_maps_extended()`** | **NEW: Extended search using multiple queries for 500+ results** |
 
 **Features:**
 - Multiple selector fallbacks for results feed
 - Cookie consent handling
 - Scroll-to-load-more logic
 - Returns list of `{name, category, website_url}`
+- **Extended mode:** Tries "near me", "nearby", "top rated", "best", "popular", "local" variations
+- **Deduplicates** results by website_url across queries
 
 ---
 
@@ -222,27 +294,67 @@
 ---
 
 ### `templates/index.html` — Frontend UI
-**Role:** Vanilla JS frontend with SSE streaming
+**Role:** Vanilla JS frontend with SSE streaming, sidebar, and modals
 
 **Features:**
-- Form: country, city, business type, max results, Google Sheets toggle
-- Real-time progress bar + stats (companies, emails, success rate)
-- Live log console with color-coded badges
-- Auto-reconnect on SSE drop (3-second delay)
-- Resume banner for recovered jobs
-- Download CSV button
-- Abort button
+- **Left Sidebar:** Search history with stats (Total, Extracted, Remaining)
+- **Form:** country, city, business type, max listings, Google Sheets toggle
+- **Modals:**
+  - **Existing Search Modal:** "You have X records remaining" with "Extract from Existing" / "Search Fresh" options
+  - **Batch Extraction Modal:** Enter batch size for email extraction
+- **Real-time progress bar** + stats (companies, emails, success rate)
+- **Results Table:** 8 columns (Company Name, Email, WhatsApp/Phone, Business Type, Website, City, Country)
+- **Live log console** with color-coded badges
+- **Auto-reconnect** on SSE drop (3-second delay)
+- **Resume banner** for recovered jobs
+- **Download CSV** button (current batch or all extracted data)
+- **Abort button**
+
+**JavaScript Functions:**
+- `loadSearchHistory()`: Fetch and render sidebar
+- `renderSearchHistory()`: Display search items with stats
+- `openBatchModal()`: Show batch extraction dialog
+- `startBatchExtraction()`: Call API to start Phase 2
+- `extractFromExisting()`: Handle "Extract from Existing" button
+- `forceNewSearch()`: Handle "Search Fresh" button
+- `downloadAllForQuery()`: Download all extracted data
+- `deleteSearch()`: Delete search from database
+- `addTableRow()`: Render table row with 8 columns
+- `handleSSE()`: Process SSE events, update UI, refresh sidebar
 
 ---
 
 ## 🚀 Key Features
 
-### 1. **Google Maps Search**
+### 1. **2-Phase Extraction System** ⭐ NEW
+- **Phase 1:** Search Google Maps → Save ALL listings (~300-500) to database
+- **Phase 2:** Extract emails from pending listings in batches (e.g., 50 at a time)
+- **Benefits:**
+  - Never miss any listing from Google Maps
+  - Extract in manageable batches
+  - Resume extraction anytime
+  - See exact remaining count
+  - Download all extracted data for a keyword
+
+### 2. **Extended Google Maps Scraping** ⭐ NEW
+- Multiple query variations to bypass 300-result limit
+- Queries: base + "near me", "nearby", "top rated", "best", "popular", "local"
+- Deduplicates results by website_url
+- Can fetch **500+ listings** instead of just 300
+
+### 3. **Search History Sidebar** ⭐ NEW
+- Left panel shows all previous searches
+- Stats per search: 📊 Total, ✅ Extracted, ⏳ Remaining
+- Actions: Extract, Download All, Delete
+- Click to load query into form
+- Persists across server restarts (SQLite database)
+
+### 4. **Google Maps Search**
 - Playwright-based scraping with cookie consent handling
 - Scrolls to load more results
-- Returns up to 200 listings
+- Returns up to 500+ listings (with extended mode)
 
-### 2. **Bulletproof Email Extraction**
+### 5. **Bulletproof Email Extraction**
 - **ALWAYS uses Playwright** (full JS rendering)
 - **5-second wait** for lazy-loaded content
 - **Aggressive extraction** from entire HTML source:
@@ -254,27 +366,27 @@
 - **Visits up to 15 internal pages** per site
 - **Google Search fallback** for emails on directories (Facebook, Justdial, IndiaMART)
 
-### 3. **Phone/WhatsApp Extraction**
+### 6. **Phone/WhatsApp Extraction**
 - Extracts from `tel:` links
 - WhatsApp deep links (`wa.me`, `api.whatsapp.com`)
 - Visible text patterns ("Phone:", "Mobile:", "WhatsApp:")
 - International phone number patterns
 
-### 4. **Multiple Emails Per Company**
+### 7. **Multiple Emails Per Company**
 - Creates separate row for each email
 - Numbered naming: "Company Name 1", "Company Name 2", etc.
 - WhatsApp/Phone only on first row per company
 
-### 5. **Deduplication**
+### 8. **Deduplication**
 - URL exact-match dedup (keeps lead with more data)
 - Fuzzy company-name dedup via `rapidfuzz` (similarity >90%)
 
-### 6. **SSE Real-Time Updates**
+### 9. **SSE Real-Time Updates**
 - 60-minute timeout (supports long jobs)
 - Auto-reconnect on disconnect (3-second delay)
 - Job queue preserved for reconnection
 
-### 7. **Job Management**
+### 10. **Job Management**
 - Max 3 concurrent jobs
 - Job timeout protection (configurable, default 60 min)
 - Abort/cancel support
@@ -314,11 +426,17 @@
 8. ✅ **30-min Hugging Face startup timeout** → Pre-installed Chromium in Docker build
 9. ✅ **Single row per company with multiple emails** → Separate rows with numbered naming
 10. ✅ **No WhatsApp/Phone column** → Added column with extraction from tel:/wa.me links
+11. ✅ **Only 300 Maps results** → Extended search with multiple queries (500+)
+12. ✅ **No search history** → SQLite database with sidebar
+13. ✅ **Can't extract in batches** → 2-phase system with batch extraction
+14. ✅ **Permission denied in Docker** → Database uses /tmp/ for compatibility
+15. ✅ **Missing columns in table** → Added WhatsApp/Phone, City, Country columns
 
 ### Current Limitations:
 - Some sites use CAPTCHA or bot detection (Cloudflare, etc.)
 - Very large sites (>15 pages) may not be fully crawled
 - Google Search fallback may be rate-limited
+- SQLite database stored in /tmp/ (may reset on container restart in some environments)
 
 ---
 
@@ -343,11 +461,12 @@
 1. Push to GitHub (`main` branch)
 2. GitHub Actions auto-deploys to HF Spaces
 3. Dockerfile pre-installs Chromium during build
+4. **Database:** Uses `/tmp/lead_extractor.db` (persists in HF Spaces)
 
 ### Local Docker:
 ```bash
 docker build -t lead-extractor .
-docker run -p 7860:7860 lead-extractor
+docker run -p 7860:7860 -v $(pwd)/data:/app/data lead-extractor
 ```
 
 ### Local Development:
@@ -374,6 +493,39 @@ python app.py
 
 ---
 
+## 🔄 2-Phase Workflow
+
+### First-Time Search:
+```
+1. User fills form: Country, City (optional), Business Type
+2. Clicks "Start Extraction"
+3. System searches Google Maps → saves ~300-500 listings to database
+4. System shows modal: "You have 300 records remaining"
+5. User chooses:
+   - "Extract from Existing" → Opens batch modal
+   - "Search Fresh on Maps" → Deletes old data, searches again
+```
+
+### Batch Extraction:
+```
+1. User clicks "Extract" on sidebar or from modal
+2. Batch modal opens: "How many records to extract?"
+3. User enters batch size (e.g., 50)
+4. System extracts emails from 50 random pending listings
+5. CSV downloads with batch results
+6. Sidebar updates: Shows remaining count (e.g., 250)
+7. Repeat until all listings extracted
+```
+
+### Download All Data:
+```
+1. User clicks "Download All" on sidebar
+2. System fetches ALL extracted leads for that query
+3. Downloads CSV: leads_travel_agency_in_lucknow_all.csv
+```
+
+---
+
 ## 🔮 Future Improvements (Not Yet Implemented)
 
 1. **CAPTCHA solving** for blocked sites
@@ -383,20 +535,23 @@ python app.py
 5. **Batch URL input** (upload CSV of websites)
 6. **Multi-language support**
 7. **API endpoint** for programmatic access
-8. **Database storage** (SQLite/PostgreSQL) instead of CSV
+8. **Database persistence options** (PostgreSQL for production)
 9. **Email template generator** for outreach
 10. **Scheduled scraping jobs** (cron-like)
+11. **Search pagination** in sidebar (if 100+ searches)
+12. **Search tags/categories** for organization
 
 ---
 
 ## 📖 How to Continue Development
 
 1. **Read this file** to understand the codebase
-2. **Check `app.py`** for pipeline logic
-3. **Check `scraper/website_visitor.py`** for email/phone extraction
-4. **Check `processor/lead_model.py`** for data model
-5. **Test changes locally** before pushing to GitHub
-6. **Monitor Hugging Face logs** after deployment
+2. **Check `app.py`** for pipeline logic and new 2-phase routes
+3. **Check `storage/database.py`** for database operations
+4. **Check `scraper/website_visitor.py`** for email/phone extraction
+5. **Check `processor/lead_model.py`** for data model
+6. **Test changes locally** before pushing to GitHub
+7. **Monitor Hugging Face logs** after deployment
 
 ### Common Tasks:
 - **Add new email extraction patterns** → Edit `extract_emails_from_source()` in `scraper/website_visitor.py`
@@ -404,9 +559,11 @@ python app.py
 - **Add new CSV columns** → Update `Lead` dataclass in `processor/lead_model.py` + `CSV_HEADERS`
 - **Add new routes** → Add to `app.py`
 - **Fix extraction issues** → Increase Playwright wait time, add new selectors, or visit more pages
+- **Modify database schema** → Edit `init_db()` in `storage/database.py`
+- **Update UI** → Edit `templates/index.html`
 
 ---
 
 **Last Updated:** 2026-04-07  
-**Current Version:** `02cdeb7`  
-**Status:** Production-ready on Hugging Face Spaces
+**Current Version:** `5e2f152`  
+**Status:** ✅ Production-ready on Hugging Face Spaces with 2-Phase Extraction System
