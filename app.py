@@ -48,8 +48,15 @@ from storage.database import (
 # Initialize database on startup
 init_db()
 
-# Application version
-APP_VERSION = "V2.5"
+# Read version from VERSION file (auto-incremented on each commit)
+_VERSION_FILE = os.path.join(os.path.dirname(__file__), "VERSION")
+try:
+    with open(_VERSION_FILE) as f:
+        APP_VERSION = f.read().strip()
+    if not APP_VERSION.startswith("V"):
+        APP_VERSION = f"V{APP_VERSION}"
+except:
+    APP_VERSION = "V2.7"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
