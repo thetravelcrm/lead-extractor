@@ -600,13 +600,15 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                       f"  {clean_name or '(no name)'} — {len(emails)} row(s): {', '.join(emails[:2])}"
                       + (" ..." if len(emails) > 2 else ""),
                       data={
-                          "company":    clean_name,
-                          "emails":     emails,
-                          "category":   final_category,
-                          "website":    website_url,
-                          "city":       city,
-                          "current":    processed_count,
-                          "total":      total_unique,
+                          "company":       clean_name,
+                          "emails":        emails,
+                          "whatsapp_phone": whatsapp_phone,
+                          "category":      final_category,
+                          "website":       website_url,
+                          "city":          city,
+                          "country":       country,
+                          "current":       processed_count,
+                          "total":         total_unique,
                       })
             else:
                 # No emails — still save the company row (without email)
@@ -927,13 +929,15 @@ def _run_batch_extraction(job_id: str, query: str, batch_size: int, use_sheets: 
                       f"  {clean_name or '(no name)'} — {len(emails)} email(s): {', '.join(emails[:2])}"
                       + (" ..." if len(emails) > 2 else ""),
                       data={
-                          "company": clean_name,
-                          "emails": emails,
-                          "category": final_category,
-                          "website": website_url,
-                          "city": search.get("city", ""),
-                          "current": processed_count,
-                          "total": total,
+                          "company":        clean_name,
+                          "emails":         emails,
+                          "whatsapp_phone": whatsapp_phone,
+                          "category":       final_category,
+                          "website":        website_url,
+                          "city":           search.get("city", ""),
+                          "country":        search["country"],
+                          "current":        processed_count,
+                          "total":          total,
                       })
             else:
                 # No emails - mark as failed

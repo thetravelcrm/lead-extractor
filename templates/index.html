@@ -287,8 +287,8 @@
     </div>
 
     <div class="form-group">
-      <label for="max_results">Max Companies per Batch</label>
-      <input type="number" id="max_results" value="50" min="5" max="200" />
+      <label for="max_results">Max Listings from Google Maps</label>
+      <input type="number" id="max_results" value="300" min="50" max="500" />
     </div>
 
     <div class="form-group full">
@@ -305,7 +305,7 @@
 
   <div class="output-info">
     <span>Output: </span>
-    <span id="col-hint">Company Name | Email(s) | Business Type | Website URL | Country | Scraped At</span>
+    <span id="col-hint">Company Name | Email(s) | WhatsApp/Phone | Business Type | Website URL | City | Country | Scraped At</span>
   </div>
 
   <!-- Progress -->
@@ -340,12 +340,18 @@
       <table>
         <thead id="results-thead">
           <tr>
-            <th>#</th><th>Company Name</th><th>Email(s)</th>
-            <th>Business Type</th><th>Website</th>
+            <th>#</th>
+            <th>Company Name</th>
+            <th>Email(s)</th>
+            <th>WhatsApp/Phone</th>
+            <th>Business Type</th>
+            <th>Website</th>
+            <th>City</th>
+            <th>Country</th>
           </tr>
         </thead>
         <tbody id="results-body">
-          <tr class="no-rows"><td colspan="5">Results will appear here as emails are found...</td></tr>
+          <tr class="no-rows"><td colspan="8">Results will appear here as emails are found...</td></tr>
         </tbody>
       </table>
     </div>
@@ -471,21 +477,11 @@ window.addEventListener('load', () => {
 function updateCityColumn() {
   hasCity = document.getElementById('city').value.trim().length > 0;
   const hint = document.getElementById('col-hint');
-  const thead = document.getElementById('results-thead').querySelector('tr');
 
   if (hasCity) {
-    hint.textContent = 'Company Name | Email(s) | Business Type | Website URL | City | Country | Scraped At';
-    // Add City column to table header if not already there
-    if (!thead.querySelector('th.city-col')) {
-      const th = document.createElement('th');
-      th.className = 'city-col';
-      th.textContent = 'City';
-      thead.insertBefore(th, thead.children[4]); // before Website
-    }
+    hint.textContent = 'Company Name | Email(s) | WhatsApp/Phone | Business Type | Website URL | City | Country | Scraped At';
   } else {
-    hint.textContent = 'Company Name | Email(s) | Business Type | Website URL | Country | Scraped At';
-    const existing = thead.querySelector('th.city-col');
-    if (existing) existing.remove();
+    hint.textContent = 'Company Name | Email(s) | WhatsApp/Phone | Business Type | Website URL | City | Country | Scraped At';
   }
 }
 
@@ -600,8 +596,8 @@ function handleSSE(e) {
     updateProgress(msg.data.current, msg.data.total);
 
   if (msg.level === 'success' && msg.data?.emails?.length) {
-    const { emails, company='', category='', website='', city:msgCity='' } = msg.data;
-    addTableRow(company, emails, category, website, msgCity);
+    const { emails, company='', category='', website='', city:msgCity='', country='', whatsapp_phone='' } = msg.data;
+    addTableRow(company, emails, category, website, msgCity, country, whatsapp_phone);
     companyCount++;
     emailCount += emails.length;
     updateStats();
@@ -627,7 +623,7 @@ function handleSSE(e) {
 }
 
 // ── Table row ─────────────────────────────────────────────────────────────
-function addTableRow(company, emails, category, website, city) {
+function addTableRow(company, emails, category, website, city, country, whatsappPhone) {
   const tbody = document.getElementById('results-body');
   const noRow = tbody.querySelector('.no-rows');
   if (noRow) noRow.remove();
@@ -638,17 +634,20 @@ function addTableRow(company, emails, category, website, city) {
   let domain = '—';
   try { domain = new URL(website).hostname.replace('www.',''); } catch {}
 
-  const showCity = hasCity && city;
-  const cityCell = showCity ? `<td class="city" title="${escHtml(city)}">${escHtml(city)}</td>` : '';
+  const phoneDisplay = whatsappPhone || '—';
+  const countryDisplay = country || '—';
+  const cityDisplay = city || '—';
 
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td>${rowIndex}</td>
     <td title="${escHtml(company)}">${escHtml(company.substring(0,28))}${company.length>28?'…':''}</td>
-    <td class="email" title="${escHtml(emailStr)}">${escHtml(emailStr.substring(0,38))}${emailStr.length>38?'…':''}</td>
+    <td class="email" title="${escHtml(emailStr)}">${escHtml(emailStr.substring(0,35))}${emailStr.length>35?'…':''}</td>
+    <td title="${escHtml(phoneDisplay)}">${escHtml(phoneDisplay.substring(0,20))}</td>
     <td title="${escHtml(category)}">${escHtml(category.substring(0,22))}${category.length>22?'…':''}</td>
-    ${cityCell}
-    <td title="${escHtml(website)}">${escHtml(domain)}</td>`;
+    <td title="${escHtml(website)}">${escHtml(domain)}</td>
+    <td class="city" title="${escHtml(cityDisplay)}">${escHtml(cityDisplay.substring(0,18))}</td>
+    <td title="${escHtml(countryDisplay)}">${escHtml(countryDisplay.substring(0,18))}</td>`;
   tbody.appendChild(tr);
   while (tbody.rows.length > 15) tbody.deleteRow(0);
 }
@@ -691,7 +690,7 @@ function resetUI() {
   companyCount=0; emailCount=0; rowIndex=0;
   ['stats-row','progress-wrap','output-section'].forEach(id => document.getElementById(id).style.display='none');
   document.getElementById('progress-fill').style.width = '0%';
-  document.getElementById('results-body').innerHTML = '<tr class="no-rows"><td colspan="5">Results will appear here as emails are found...</td></tr>';
+  document.getElementById('results-body').innerHTML = '<tr class="no-rows"><td colspan="8">Results will appear here as emails are found...</td></tr>';
   document.getElementById('btn-download').disabled = true;
   clearLog();
 }
