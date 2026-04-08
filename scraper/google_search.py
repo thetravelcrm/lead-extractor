@@ -201,34 +201,40 @@ async def search_google_maps(
                 return results
 
             emit_fn("info", "Google Maps loaded. Scrolling for results...")
-            await page.wait_for_timeout(3000)  # Longer initial wait for JS to render
+            await page.wait_for_timeout(4000)  # Longer initial wait for full JS render
 
             scroll_attempts = 0
-            max_scrolls = max(20, max_results // 3)  # More scrolls: 300 results → 100 scrolls
+            max_scrolls = max(30, max_results // 2)  # More scrolls: 300 results → 150 scrolls
             last_count = 0
             no_new_results_count = 0  # Track consecutive scrolls with no new results
+            stable_count = 0  # Track how many times result count stays same
 
             while len(results) < max_results and scroll_attempts < max_scrolls:
+
+                # Wait for new content to render after scroll
+                await page.wait_for_timeout(1000)
 
                 # ── Extract visible listing cards ──────────────────────
                 # Try multiple selectors for Google Maps listing cards
                 cards = []
+                best_selector = None
                 for card_selector in [
                     'div[role="article"]',  # Most reliable - article role
                     'a[href*="/maps/place/"]',
                     'div.Nv2PK',
-                    'div[aria-label][href*="maps"]',
+                    'div[jsaction*="click"]',
                 ]:
                     try:
                         found_cards = await page.locator(card_selector).all()
-                        if found_cards:
+                        if found_cards and len(found_cards) > len(cards):
                             cards = found_cards
-                            emit_fn("info", f"Using card selector: {card_selector}, found {len(found_cards)} cards")
-                            break
+                            best_selector = card_selector
                     except Exception:
                         continue
 
-                if not cards:
+                if cards:
+                    emit_fn("info", f"Using selector: {best_selector}, found {len(cards)} cards (total unique: {len(results)})")
+                else:
                     emit_fn("warn", "No listing cards found. Trying to scroll anyway...")
 
                 for card in cards:
@@ -240,12 +246,13 @@ async def search_google_maps(
                         if not name:
                             # Try to get name from heading or first text element
                             try:
-                                name = await card.locator('h1, h2, h3, [role="heading"]').first.inner_text(timeout=500)
-                                name = name.strip()
+                                heading = card.locator('h1, h2, h3, [role="heading"], .fontTitleMedium').first
+                                name = await heading.inner_text(timeout=500)
+                                name = name.strip().split('\n')[0]  # Get first line only
                             except:
                                 pass
 
-                        if not name or name in seen_names:
+                        if not name or len(name) < 2 or name in seen_names:
                             continue
                         seen_names.add(name)
 
@@ -338,41 +345,51 @@ async def search_google_maps(
                 # Check if we got new results in this scroll
                 if len(results) == last_count:
                     no_new_results_count += 1
-                    if no_new_results_count >= 5:  # Stop if 5 consecutive scrolls with no new results
-                        emit_fn("info", "No new results after 5 scrolls. Reached end of Maps results.")
+                    if no_new_results_count >= 8:  # Stop if 8 consecutive scrolls with no new results
+                        emit_fn("info", f"No new results after 8 scrolls. Total collected: {len(results)}")
                         break
                 else:
                     no_new_results_count = 0
                     last_count = len(results)
 
                 # ── Scroll down to load more ───────────────────────────
-                # Try multiple scroll strategies
+                # Strategy: Scroll the results container progressively
                 scrolled = False
+
+                # Try scrolling the feed container first (most reliable)
                 for scroll_selector in [
                     'div[role="feed"]',
                     'div[role="listbox"]',
                     'div[aria-label*="Results"]',
-                    'div.fontBodyMedium',
                 ]:
                     try:
                         feed = page.locator(scroll_selector).first
                         if await feed.count() > 0:
-                            # Scroll by larger amount (1200px) to load more results
-                            await feed.evaluate("el => el.scrollTop += 1200")
-                            scrolled = True
-                            emit_fn("info", f"Scrolled feed container: {scroll_selector}")
-                            break
-                    except Exception:
+                            # Get current scroll position and scroll further
+                            current_scroll = await feed.evaluate("el => el.scrollTop")
+                            await feed.evaluate("el => el.scrollTop += 1500")
+                            new_scroll = await feed.evaluate("el => el.scrollTop")
+                            if new_scroll > current_scroll:
+                                scrolled = True
+                                emit_fn("info", f"Scrolled {scroll_selector}: {current_scroll} → {new_scroll}")
+                                break
+                    except Exception as e:
                         continue
 
                 if not scrolled:
-                    # Fallback: scroll the whole page
-                    await page.evaluate("window.scrollBy(0, 1200)")
+                    # Fallback: Keyboard scroll (simulate user behavior)
+                    await page.keyboard.press("End")
+                    await page.wait_for_timeout(500)
                     scrolled = True
+                    emit_fn("info", "Used keyboard End key to scroll")
 
-                # Wait for new results to load
-                await page.wait_for_timeout(2500)
+                # Wait for new results to load after scroll
+                await page.wait_for_timeout(3000)
                 scroll_attempts += 1
+
+                # Log progress every 10 scrolls
+                if scroll_attempts % 10 == 0:
+                    emit_fn("info", f"Scroll #{scroll_attempts}: {len(results)} results so far...")
 
                 # Stop if "You've reached the end" message appears
                 try:
@@ -382,9 +399,9 @@ async def search_google_maps(
                         "No more results",
                     ]
                     for pattern in end_text_patterns:
-                        count = await page.get_by_text(pattern, exact=False).count()
-                        if count > 0:
-                            emit_fn("info", f"Reached end of Maps results (found: '{pattern}').")
+                        elements = await page.get_by_text(pattern, exact=False).all()
+                        if len(elements) > 0:
+                            emit_fn("info", f"Reached end of Maps results (found: '{pattern}'). Total: {len(results)}")
                             break
                     else:
                         continue
