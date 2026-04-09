@@ -56,7 +56,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.7"  # Fallback version
+    APP_VERSION = "V2.8"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -516,8 +516,10 @@ def _run_pipeline(job_id: str, params: dict) -> None:
 
             emails = []
             page_data = None
+            whatsapp_phone = ""
 
             if website_url:
+                # ── HAS WEBSITE: Visit and extract emails ────────────────────────
                 rate_limiter.acquire()
                 page_data = visit_website(website_url, session)
 
@@ -532,7 +534,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     if not name and soup:
                         name = extract_company_name(soup, website_url)
 
-                    # BULLETPROOF: Extract emails from entire HTML source (not just visible text)
+                    # BULLETPROOF: Extract emails from entire HTML source
                     from scraper.website_visitor import extract_emails_from_source, extract_phones_from_source
                     source_emails = extract_emails_from_source(page_data["html"])
                     text_emails  = extract_emails(page_data["text"])
@@ -546,16 +548,14 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     emails = all_raw
 
                     # Extract WhatsApp/Phone numbers
-                    whatsapp_phone = ""
                     found_phones = page_data.get("found_phones", [])
                     source_phones = extract_phones_from_source(page_data["html"])
                     all_phones = list(dict.fromkeys(found_phones + list(source_phones)))
-                    # Prefer WhatsApp number if available, otherwise first phone
                     if all_phones:
                         whatsapp_phone = all_phones[0]
 
-                    # STAGE 2.5: Google Search for additional emails (Facebook, directories, etc.)
-                    if len(emails) < 3 and name:  # Only search if we have <3 emails
+                    # STAGE 2.5: Google Search for additional emails (only if <3 emails found)
+                    if len(emails) < 3 and name:
                         _emit(job_id, "info", f"  🔍 Web search for {name[:30]}...")
                         rate_limiter.acquire()
                         loop2 = asyncio.new_event_loop()
@@ -574,6 +574,33 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                             if validate_email(se) and se not in emails:
                                 emails.append(se)
                                 _emit(job_id, "info", f"  🌐 Web search found: {se}")
+
+            else:
+                # ── NO WEBSITE: Do Google search to find emails ─────────────────
+                # This is critical for companies without websites on Google Maps
+                _emit(job_id, "info", f"  🔍 No website — searching Google for {name[:40]}...")
+                rate_limiter.acquire()
+                loop2 = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop2)
+                try:
+                    # Search for company name + city to find emails from directories, social media, etc.
+                    search_emails_list = loop2.run_until_complete(
+                        search_emails_for_company(name, "", lambda lvl, msg: None)
+                    )
+                except Exception:
+                    search_emails_list = []
+                finally:
+                    loop2.close()
+
+                # Validate emails
+                for se in search_emails_list:
+                    if validate_email(se):
+                        emails.append(se)
+
+                if emails:
+                    _emit(job_id, "success", f"  🌐 Found {len(emails)} email(s) via Google search: {', '.join(emails[:2])}")
+                else:
+                    _emit(job_id, "info", f"  No emails found via Google search for {name[:30]}")
 
             # Classify business type
             page_text = page_data["text"] if page_data else ""
