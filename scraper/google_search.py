@@ -116,6 +116,11 @@ async def search_google_maps(
     """
     from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
+    # Extract business type from query (e.g., "Travel Agency in Lucknow, India" → "Travel Agency")
+    import re
+    query_match = re.match(r'^(.+?)\s+in\s+', query)
+    business_type = query_match.group(1).strip() if query_match else query
+
     results: List[Dict] = []
     seen_names: set = set()
     encoded_query = quote_plus(query)
