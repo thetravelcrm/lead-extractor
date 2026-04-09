@@ -59,7 +59,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.11"  # Fallback version
+    APP_VERSION = "V2.12"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -505,27 +505,13 @@ def _run_pipeline(job_id: str, params: dict) -> None:
         # ----------------------------------------------------------------
         # STAGE 2 — Visit websites & extract emails
         # ----------------------------------------------------------------
-        # Deduplicate by URL to avoid visiting the same website multiple times
-        # (common with Google Maps where multiple listings share one website)
-        visited_urls = {}  # url -> lead_data
-        unique_listings = []
+        # Process ALL listings - don't skip duplicates
+        # (Each listing is a different business even if they share a website)
+        unique_listings = listings
         skipped_dupes = 0
-        
-        for listing in listings:
-            url = listing.get("website_url", "").strip().rstrip("/")
-            if url and url in visited_urls:
-                skipped_dupes += 1
-                continue
-            unique_listings.append(listing)
-            if url:
-                visited_urls[url] = listing
-        
-        if skipped_dupes > 0:
-            _emit(job_id, "info", f"Skipped {skipped_dupes} duplicate URLs. Processing {len(unique_listings)} unique websites...")
-        
         total_unique = len(unique_listings)
         processed_count = 0
-        
+
         for listing in unique_listings:
             # Check job timeout
             elapsed_minutes = (time.time() - start_time) / 60
