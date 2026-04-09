@@ -87,10 +87,17 @@ def init_db():
                 name TEXT NOT NULL,
                 category TEXT DEFAULT '',
                 website_url TEXT DEFAULT '',
-                status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'extracted', 'failed', 'no_website')),
+                phone TEXT DEFAULT '',
+                address TEXT DEFAULT '',
+                rating TEXT DEFAULT '',
+                review_count TEXT DEFAULT '',
+                plus_code TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'extracted', 'enriching', 'enriched', 'failed', 'no_website')),
                 extracted_at TEXT,
                 lead_data TEXT,  -- JSON: {emails, company_name, business_type, etc.}
+                enrichment_data TEXT,  -- JSON: {linkedin_urls: [], instagram_urls: [], ...}
                 created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
                 FOREIGN KEY (search_id) REFERENCES searches(id) ON DELETE CASCADE
             );
 
@@ -240,21 +247,42 @@ def bulk_insert_listings(search_id: int, listings: List[Dict]) -> int:
             # Check if listing already exists for this search
             existing = conn.execute("""
                 SELECT id FROM listings
-                WHERE search_id = ? AND website_url = ?
-            """, (search_id, listing.get("website_url", ""))).fetchone()
+                WHERE search_id = ? AND (website_url = ? OR name = ?)
+            """, (search_id, listing.get("website_url", ""), listing.get("name", ""))).fetchone()
 
             if existing:
+                # Update existing record with new data if available
+                conn.execute("""
+                    UPDATE listings
+                    SET phone = ?, address = ?, rating = ?, review_count = ?, plus_code = ?, updated_at = ?
+                    WHERE id = ?
+                """, (
+                    listing.get("phone", ""),
+                    listing.get("address", ""),
+                    listing.get("rating", ""),
+                    listing.get("review_count", ""),
+                    listing.get("plus_code", ""),
+                    now,
+                    existing["id"]
+                ))
+                inserted += 1
                 continue
 
             conn.execute("""
-                INSERT INTO listings (search_id, name, category, website_url, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO listings (search_id, name, category, website_url, phone, address, rating, review_count, plus_code, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 search_id,
                 listing.get("name", ""),
                 listing.get("category", ""),
                 listing.get("website_url", ""),
+                listing.get("phone", ""),
+                listing.get("address", ""),
+                listing.get("rating", ""),
+                listing.get("review_count", ""),
+                listing.get("plus_code", ""),
                 "pending" if listing.get("website_url") else "no_website",
+                now,
                 now,
             ))
             inserted += 1

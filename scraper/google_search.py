@@ -319,93 +319,141 @@ async def search_google_maps(
                     except:
                         pass
 
-                # Process each card
+                # Process each card - click to get ALL data
                 for card in cards:
                     if len(results) >= max_results:
                         break
                     try:
-                        name = (await card.get_attribute("aria-label") or "").strip()
+                        # Click card to open side panel
+                        await card.click(timeout=2000)
+                        await page.wait_for_timeout(2000)
+
+                        # Extract ALL available data from the side panel
+                        # Name
+                        name = ""
+                        try:
+                            name_el = page.locator('h1, [role="heading"] div[jsaction], div.fontTitleMedium').first
+                            name = await name_el.inner_text(timeout=1000)
+                            name = name.strip().split('\n')[0] if name else ""
+                        except:
+                            pass
 
                         if not name or len(name) < 3 or name in seen_names:
+                            try:
+                                await page.keyboard.press("Escape")
+                                await page.wait_for_timeout(300)
+                            except:
+                                pass
                             continue
 
                         seen_names.add(name)
 
-                        # Extract category
+                        # Category / Business Type
                         category = ""
                         try:
-                            spans = await card.locator('span').all()
-                            for span in spans:
-                                text = await span.inner_text(timeout=300)
-                                text = text.strip()
-                                if text and len(text) < 50 and '·' in text:
-                                    category = text.split('·')[0].strip()
-                                    break
+                            cat_el = page.locator('div[aria-label*="Category"], span.fontBodyMedium').first
+                            category = await cat_el.inner_text(timeout=1000)
+                            category = category.strip().split('·')[0].strip() if category else ""
                         except:
                             pass
 
-                        # Extract website from card (direct link in listing)
+                        # Rating
+                        rating = ""
+                        try:
+                            rating_el = page.locator('div[aria-label*="star"] span, [class*="rating"]').first
+                            rating_text = await rating_el.inner_text(timeout=1000)
+                            # Extract number from text like "4.8 (90)" or just "4.8"
+                            import re
+                            rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+                            if rating_match:
+                                rating = rating_match.group(1)
+                        except:
+                            pass
+
+                        # Review Count
+                        review_count = ""
+                        try:
+                            review_el = page.locator('div[aria-label*="review"], span[aria-label*="review"]').first
+                            review_text = await review_el.inner_text(timeout=1000)
+                            import re
+                            review_match = re.search(r'(\d[\d,]*)', review_text)
+                            if review_match:
+                                review_count = review_match.group(1).replace(',', '')
+                        except:
+                            pass
+
+                        # Phone Number
+                        phone = ""
+                        try:
+                            # Look for phone icon or tel: link
+                            phone_link = page.locator('a[href^="tel:"], button[data-item-id*="phone"]').first
+                            if await phone_link.count() > 0:
+                                href = await phone_link.get_attribute("href")
+                                if href and href.startswith("tel:"):
+                                    phone = href.replace("tel:", "").strip()
+                            else:
+                                # Try to find phone in text
+                                phone_text = await page.locator('div[data-item-id*="phone"]').inner_text(timeout=1000)
+                                import re
+                                phone_match = re.search(r'([\d\s\-\+\(\)]{8,})', phone_text)
+                                if phone_match:
+                                    phone = phone_match.group(1).strip()
+                        except:
+                            pass
+
+                        # Website URL
                         website_url = ""
                         try:
-                            # Try multiple selectors for website link
-                            web_selectors = [
-                                'a[data-value="Website"]',
-                                'a[aria-label*="Website" i]',
-                                'a[aria-label*="website" i]',
-                                'a[href*="http"]:not([href*="google"]):not([href*="/maps"]):not([href*="gstatic"])',
-                            ]
-                            for sel in web_selectors:
-                                web_links = await card.locator(sel).all()
-                                for link in web_links:
-                                    href = await link.get_attribute("href")
-                                    if href and len(href) > 10 and "google.com" not in href and "/maps" not in href and "gstatic.com" not in href:
-                                        website_url = href.split("?")[0]
-                                        break
-                                if website_url:
-                                    break
+                            web_link = page.locator('a[data-item-id="authority"], a[aria-label*="Website"]').first
+                            if await web_link.count() > 0:
+                                href = await web_link.get_attribute("href")
+                                if href and href.startswith("http"):
+                                    website_url = href.split("?")[0]
                         except:
                             pass
 
-                        # Fallback: Click card to open side panel and get website
-                        # Do this for ALL results, not just first 30!
-                        if not website_url:
-                            try:
-                                await card.click(timeout=2000)
-                                await page.wait_for_timeout(2000)
+                        # Address
+                        address = ""
+                        try:
+                            addr_el = page.locator('div[data-item-id="address"], button[data-item-id="address"]').first
+                            address = await addr_el.inner_text(timeout=1000)
+                            address = address.strip() if address else ""
+                        except:
+                            pass
 
-                                # Try multiple selectors for website in side panel
-                                panel_selectors = [
-                                    'a[data-item-id="authority"]',
-                                    'a[aria-label*="website" i]',
-                                    'a[href*="http"]:not([href*="google"]):not([href*="/maps"]):not([href*="gstatic"])',
-                                ]
-                                for panel_sel in panel_selectors:
-                                    try:
-                                        web_el = page.locator(panel_sel).first
-                                        if await web_el.count() > 0:
-                                            href = await web_el.get_attribute("href")
-                                            if href and len(href) > 10 and "google.com" not in href and "/maps" not in href and "gstatic.com" not in href:
-                                                website_url = href.split("?")[0]
-                                                break
-                                    except:
-                                        continue
+                        # Plus Code
+                        plus_code = ""
+                        try:
+                            plus_el = page.locator('div[data-item-id*="plus_code"], text:regex("[A-Z0-9]\\+[A-Z0-9]")').first
+                            plus_code = await plus_el.inner_text(timeout=1000)
+                            plus_code = plus_code.strip() if plus_code else ""
+                        except:
+                            pass
 
-                                # Close side panel
-                                await page.keyboard.press("Escape")
-                                await page.wait_for_timeout(500)
-                            except:
-                                try:
-                                    await page.keyboard.press("Escape")
-                                except:
-                                    pass
+                        # Close side panel
+                        try:
+                            await page.keyboard.press("Escape")
+                            await page.wait_for_timeout(300)
+                        except:
+                            pass
 
                         results.append({
                             "name": name,
-                            "category": category,
+                            "category": category or business_type,
                             "website_url": website_url,
+                            "phone": phone,
+                            "address": address,
+                            "rating": rating,
+                            "review_count": review_count,
+                            "plus_code": plus_code,
                         })
 
                     except Exception as e:
+                        try:
+                            await page.keyboard.press("Escape")
+                            await page.wait_for_timeout(300)
+                        except:
+                            pass
                         continue
 
                 emit_fn(

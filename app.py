@@ -44,6 +44,9 @@ from storage.database import (
     get_extracted_listings, update_listing_status, get_all_extracted_leads,
     delete_search
 )
+from scraper.linkedin_search import search_linkedin
+from scraper.instagram_search import search_instagram
+from scraper.enrichment import enrich_company
 
 # Initialize database on startup
 init_db()
@@ -56,7 +59,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.8"  # Fallback version
+    APP_VERSION = "V2.9"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -256,6 +259,36 @@ def search_maps_only():
     thread.start()
 
     return jsonify({"job_id": job_id, "query": query})
+
+
+@app.route("/api/enrich_data", methods=["POST"])
+def enrich_data():
+    """
+    Phase 2: Enrich missing data for all listings using Google/LinkedIn/Instagram search.
+    """
+    query = request.form.get("query", "").strip()
+    if not query:
+        return jsonify({"error": "Query is required"}), 400
+
+    stats = get_search_stats(query)
+    if not stats:
+        return jsonify({"error": "Search not found. Please search Google Maps first."}), 404
+
+    job_id = str(uuid.uuid4())
+
+    # Run enrichment in background thread
+    thread = threading.Thread(
+        target=_run_data_enrichment,
+        args=(job_id, query),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({
+        "job_id": job_id,
+        "query": query,
+        "total_listings": stats["total_listings"]
+    })
 
 
 @app.route("/api/extract_batch", methods=["POST"])
@@ -1013,6 +1046,180 @@ def _run_batch_extraction(job_id: str, query: str, batch_size: int, use_sheets: 
 
     except Exception as exc:
         _emit(job_id, "error", f"Batch extraction failed: {exc}")
+        with _jobs_lock:
+            if job_id in _jobs:
+                _jobs[job_id]["status"] = "error"
+        emit(job_id, "error", f"Job failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Data Enrichment Worker (Background)
+# ---------------------------------------------------------------------------
+
+def _run_data_enrichment(job_id: str, query: str) -> None:
+    """
+    Phase 2 worker: Enrich missing data for all listings using Google/LinkedIn/Instagram search.
+    """
+    create_job_queue(job_id)
+
+    with _jobs_lock:
+        _jobs[job_id] = {
+            "status": "running",
+            "params": {"query": query, "phase": "enrichment"},
+            "lead_count": 0,
+            "started_at": datetime.utcnow().isoformat(),
+        }
+
+    enriched_count = 0
+    total_enriched = 0
+
+    try:
+        # Get all listings for this search
+        search = get_search_by_query(query)
+        if not search:
+            _emit(job_id, "error", "Search not found in database.")
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "error"
+            return
+
+        listings = get_extracted_listings(search["id"])
+        if not listings:
+            _emit(job_id, "warn", "No listings found to enrich.")
+            with _jobs_lock:
+                _jobs[job_id]["status"] = "done"
+            return
+
+        total = len(listings)
+        _emit(job_id, "info", f"Phase 2: Enriching data for {total} companies...")
+
+        processed_count = 0
+
+        for listing in listings:
+            if is_cancelled(job_id):
+                _emit(job_id, "warn", "Enrichment cancelled.")
+                break
+
+            processed_count += 1
+            name = listing.get("name", "")
+            listing_id = listing.get("id")
+            lead_data = listing.get("lead_data", {})
+
+            # Check what's missing
+            missing_fields = []
+            emails = lead_data.get("email", [])
+            phone = lead_data.get("whatsapp_phone", "") or listing.get("phone", "")
+            website = lead_data.get("website_url", "") or listing.get("website_url", "")
+
+            if not emails:
+                missing_fields.append("email")
+            if not phone:
+                missing_fields.append("phone")
+            if not website:
+                missing_fields.append("website")
+
+            # Skip if nothing missing
+            if not missing_fields:
+                enriched_count += 1
+                continue
+
+            _emit(job_id, "info",
+                  f"[{processed_count}/{total}] Enriching: {name[:40]}... (missing: {', '.join(missing_fields)})",
+                  data={"current": processed_count, "total": total})
+
+            # Try multiple sources to fill missing data
+            city = search.get("city", "")
+            country = search["country"]
+
+            # 1. Try Google Search enrichment
+            if missing_fields:
+                _emit(job_id, "info", f"  🔍 Google search for missing data...")
+                google_result = asyncio.run(enrich_company(
+                    name, city, country, missing_fields,
+                    lambda level, msg: _emit(job_id, level, msg)
+                ))
+
+                if google_result["emails"] and "email" in missing_fields:
+                    lead_data["email"] = google_result["emails"]
+                    missing_fields.remove("email")
+                    _emit(job_id, "success", f"  📧 Found {len(google_result['emails'])} email(s) via Google")
+
+                if google_result["phones"] and "phone" in missing_fields:
+                    lead_data["whatsapp_phone"] = google_result["phones"][0]
+                    missing_fields.remove("phone")
+                    _emit(job_id, "success", f"  📞 Found phone via Google: {google_result['phones'][0]}")
+
+                if google_result["website"] and "website" in missing_fields:
+                    lead_data["website_url"] = google_result["website"]
+                    missing_fields.remove("website")
+                    _emit(job_id, "success", f"  🌐 Found website via Google: {google_result['website']}")
+
+            # 2. Try LinkedIn if still missing email/phone
+            if "email" in missing_fields or "phone" in missing_fields:
+                _emit(job_id, "info", f"  💼 Searching LinkedIn...")
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    linkedin_result = loop.run_until_complete(
+                        search_linkedin(name, city, lambda level, msg: _emit(job_id, level, msg))
+                    )
+                    loop.close()
+
+                    if linkedin_result["emails"] and "email" in missing_fields:
+                        lead_data["email"] = linkedin_result["emails"]
+                        missing_fields.remove("email")
+                        _emit(job_id, "success", f"  📧 Found {len(linkedin_result['emails'])} email(s) via LinkedIn")
+
+                    if linkedin_result["phones"] and "phone" in missing_fields:
+                        lead_data["whatsapp_phone"] = linkedin_result["phones"][0]
+                        missing_fields.remove("phone")
+                        _emit(job_id, "success", f"  📞 Found phone via LinkedIn: {linkedin_result['phones'][0]}")
+                except Exception as e:
+                    _emit(job_id, "warn", f"  LinkedIn search failed: {str(e)[:80]}")
+
+            # 3. Try Instagram if still missing email
+            if "email" in missing_fields:
+                _emit(job_id, "info", f"  📷 Searching Instagram...")
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    instagram_result = loop.run_until_complete(
+                        search_instagram(name, city, lambda level, msg: _emit(job_id, level, msg))
+                    )
+                    loop.close()
+
+                    if instagram_result["emails"]:
+                        lead_data["email"] = instagram_result["emails"]
+                        missing_fields.remove("email")
+                        _emit(job_id, "success", f"  📧 Found {len(instagram_result['emails'])} email(s) via Instagram")
+                except Exception as e:
+                    _emit(job_id, "warn", f"  Instagram search failed: {str(e)[:80]}")
+
+            # Update listing with enriched data
+            if lead_data.get("email") or lead_data.get("whatsapp_phone") or lead_data.get("website_url"):
+                update_listing_status(listing_id, "enriched", lead_data)
+                enriched_count += 1
+                total_enriched += 1
+            else:
+                _emit(job_id, "info", f"  Could not find missing data for {name[:30]}")
+
+            # Rate limiting
+            import time
+            time.sleep(1)
+
+        _emit(job_id, "success",
+              f"Phase 2 complete! Enriched {enriched_count}/{total} companies with missing data.",
+              data={"enriched": enriched_count, "total": total})
+
+        with _jobs_lock:
+            _jobs[job_id]["status"] = "done"
+            _jobs[job_id]["lead_count"] = enriched_count
+
+        _emit(job_id, "done",
+              f"Enrichment complete! {enriched_count}/{total} companies enriched.",
+              data={"enriched": enriched_count, "total": total})
+
+    except Exception as exc:
+        _emit(job_id, "error", f"Enrichment failed: {exc}")
         with _jobs_lock:
             if job_id in _jobs:
                 _jobs[job_id]["status"] = "error"

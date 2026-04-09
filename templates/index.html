@@ -329,7 +329,8 @@
 
   <!-- Buttons -->
   <div class="btn-row">
-    <button id="btn-start" onclick="startJob()">Start Extraction</button>
+    <button id="btn-start" onclick="startJob()">Phase 1: Extract from Google Maps</button>
+    <button id="btn-enrich" onclick="enrichData()" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;display:none;">Phase 2: Enrich Missing Data</button>
     <button id="btn-abort" onclick="abortJob()">Abort</button>
     <button id="btn-download" onclick="downloadCSV()" disabled>Download CSV</button>
   </div>
@@ -349,12 +350,15 @@
             <th>WhatsApp/Phone</th>
             <th>Business Type</th>
             <th>Website</th>
+            <th>Phone</th>
+            <th>Address</th>
+            <th>Rating</th>
             <th>City</th>
             <th>Country</th>
           </tr>
         </thead>
         <tbody id="results-body">
-          <tr class="no-rows"><td colspan="8">Results will appear here as emails are found...</td></tr>
+          <tr class="no-rows"><td colspan="11">Results will appear here as emails are found...</td></tr>
         </tbody>
       </table>
     </div>
@@ -599,8 +603,8 @@ function handleSSE(e) {
     updateProgress(msg.data.current, msg.data.total);
 
   if (msg.level === 'success' && msg.data?.emails?.length) {
-    const { emails, company='', category='', website='', city:msgCity='', country='', whatsapp_phone='' } = msg.data;
-    addTableRow(company, emails, category, website, msgCity, country, whatsapp_phone);
+    const { emails, company='', category='', website='', city:msgCity='', country='', whatsapp_phone='', phone='', address='', rating='' } = msg.data;
+    addTableRow(company, emails, category, website, msgCity, country, whatsapp_phone, phone, address, rating);
     companyCount++;
     emailCount += emails.length;
     updateStats();
@@ -616,6 +620,9 @@ function handleSSE(e) {
     document.getElementById('resume-banner').style.display = 'none';
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
+    // Show Phase 2 button after Phase 1 completes
+    document.getElementById('btn-enrich').style.display = 'inline-block';
+
     // Refresh sidebar to update stats
     loadSearchHistory();
   }
@@ -626,7 +633,7 @@ function handleSSE(e) {
 }
 
 // ── Table row ─────────────────────────────────────────────────────────────
-function addTableRow(company, emails, category, website, city, country, whatsappPhone) {
+function addTableRow(company, emails, category, website, city, country, whatsappPhone, phone, address, rating) {
   const tbody = document.getElementById('results-body');
   const noRow = tbody.querySelector('.no-rows');
   if (noRow) noRow.remove();
@@ -638,6 +645,9 @@ function addTableRow(company, emails, category, website, city, country, whatsapp
   try { domain = new URL(website).hostname.replace('www.',''); } catch {}
 
   const phoneDisplay = whatsappPhone || '—';
+  const phoneFromMaps = phone || '—';
+  const addressDisplay = address || '—';
+  const ratingDisplay = rating ? `⭐ ${rating}` : '—';
   const countryDisplay = country || '—';
   const cityDisplay = city || '—';
 
@@ -649,6 +659,9 @@ function addTableRow(company, emails, category, website, city, country, whatsapp
     <td title="${escHtml(phoneDisplay)}">${escHtml(phoneDisplay.substring(0,20))}</td>
     <td title="${escHtml(category)}">${escHtml(category.substring(0,22))}${category.length>22?'…':''}</td>
     <td title="${escHtml(website)}">${escHtml(domain)}</td>
+    <td title="${escHtml(phoneFromMaps)}">${escHtml(phoneFromMaps.substring(0,18))}</td>
+    <td title="${escHtml(addressDisplay)}">${escHtml(addressDisplay.substring(0,25))}${addressDisplay.length>25?'…':''}</td>
+    <td>${ratingDisplay}</td>
     <td class="city" title="${escHtml(cityDisplay)}">${escHtml(cityDisplay.substring(0,18))}</td>
     <td title="${escHtml(countryDisplay)}">${escHtml(countryDisplay.substring(0,18))}</td>`;
   tbody.appendChild(tr);
@@ -662,6 +675,54 @@ async function abortJob() {
   appendLog('warn','Abort requested — finishing current site...',currentTime());
 }
 function downloadCSV() { if (currentJobId) window.location.href = `/download/${currentJobId}`; }
+
+// ── Phase 2: Enrich Missing Data ──────────────────────────────────────────
+async function enrichData() {
+  const country = document.getElementById('country-input').value.trim();
+  const city = document.getElementById('city').value.trim();
+  const businessType = document.getElementById('business_type').value.trim();
+
+  if (!country || !businessType) {
+    alert('Please fill in Country and Business Type first.');
+    return;
+  }
+
+  const query = `${businessType} in ${city ? city + ', ' : ''}${country}`;
+
+  if (!confirm(`Start Phase 2: Enrich missing data for "${query}"?\n\nThis will search Google, LinkedIn, and Instagram to find missing emails, phones, and websites.`)) {
+    return;
+  }
+
+  resetUI();
+  setRunning(true);
+
+  const fd = new FormData();
+  fd.append('query', query);
+
+  let resp;
+  try {
+    resp = await fetch('/api/enrich_data', { method: 'POST', body: fd });
+  } catch (err) {
+    appendLog('error', 'Server unreachable: ' + err.message, '--:--:--');
+    setRunning(false);
+    return;
+  }
+
+  const data = await resp.json();
+  if (data.error) {
+    appendLog('error', data.error, '--:--:--');
+    setRunning(false);
+    return;
+  }
+
+  currentJobId = data.job_id;
+  appendLog('info', `Phase 2: Enriching data for ${data.total_listings} companies...`, currentTime());
+
+  localStorage.setItem('lead_job', JSON.stringify({ jobId: currentJobId, label: `Enrich: ${query}` }));
+  document.getElementById('resume-banner').style.display = 'none';
+
+  openStream();
+}
 
 // ── Log ───────────────────────────────────────────────────────────────────
 function appendLog(level, message, ts) {

@@ -1,7 +1,7 @@
 """
 processor/lead_model.py
 -----------------------
-Columns: Company Name | Email(s) | WhatsApp/Phone | Business Type | Website URL | City | Country | Scraped At
+Columns: Company Name | Email(s) | WhatsApp/Phone | Business Type | Website URL | City | Country | Phone | Address | Rating | Review Count | Plus Code | Scraped At
 """
 
 from dataclasses import dataclass, field
@@ -16,6 +16,11 @@ CSV_HEADERS = [
     "Website URL",
     "City",
     "Country",
+    "Phone",
+    "Address",
+    "Rating",
+    "Review Count",
+    "Plus Code",
     "Scraped At",
 ]
 
@@ -29,6 +34,11 @@ class Lead:
     website_url:   str       = ""
     city:          str       = ""
     country:       str       = ""
+    phone:         str       = ""  # Phone from Google Maps
+    address:       str       = ""  # Full address from Google Maps
+    rating:        str       = ""  # Rating (e.g., 4.8)
+    review_count:  str       = ""  # Number of reviews
+    plus_code:     str       = ""  # Google Plus Code
     source_query:  str       = ""
     scraped_at:    str       = field(
         default_factory=lambda: datetime.utcnow().isoformat(timespec="seconds") + "Z"
@@ -43,6 +53,11 @@ class Lead:
             "Website URL":   self.website_url,
             "City":          self.city,
             "Country":       self.country,
+            "Phone":         self.phone,
+            "Address":       self.address,
+            "Rating":        self.rating,
+            "Review Count":  self.review_count,
+            "Plus Code":     self.plus_code,
             "Scraped At":    self.scraped_at,
         }
 
@@ -57,4 +72,6 @@ class Lead:
             + (1 if self.website_url else 0)
             + (1 if self.business_type else 0)
             + (1 if self.whatsapp_phone else 0)
+            + (1 if self.phone else 0)
+            + (1 if self.address else 0)
         )
