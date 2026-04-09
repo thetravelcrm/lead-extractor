@@ -140,9 +140,25 @@ def upsert_search(
 
 
 def get_search_by_query(query: str) -> Optional[Dict]:
-    """Get search details by query string."""
+    """Get search details by query string using case-insensitive matching."""
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM searches WHERE query = ?", (query,)).fetchone()
+        # Use case-insensitive matching
+        row = conn.execute(
+            "SELECT * FROM searches WHERE LOWER(query) = LOWER(?)",
+            (query,)
+        ).fetchone()
+        
+        # If exact match fails, try partial match with business type
+        if not row:
+            import re
+            match = re.match(r'^(.+?)\s+in\s+', query, re.IGNORECASE)
+            if match:
+                business_part = match.group(1).strip()
+                row = conn.execute(
+                    "SELECT * FROM searches WHERE LOWER(query) LIKE LOWER(?)",
+                    (f"%{business_part}%",)
+                ).fetchone()
+        
         return dict(row) if row else None
 
 

@@ -19,7 +19,7 @@ Strategy:
 import asyncio
 import re
 from typing import Dict, List, Callable, Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, unquote
 
 
 async def enrich_company(
@@ -69,8 +69,18 @@ async def enrich_company(
     if "email" in missing_fields:
         emails = await search_google_for_emails(company_name, location, emit_fn)
         if emails:
-            result["emails"] = emails
-            result["sources"]["email"] = "google"
+            # URL-decode and validate each email
+            decoded_emails = []
+            for email in emails:
+                decoded = unquote(email).strip()
+                # Validate email format
+                if re.match(r'^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}$', decoded):
+                    decoded_emails.append(decoded)
+            
+            if decoded_emails:
+                result["emails"] = decoded_emails
+                result["sources"]["email"] = "google"
+                emit_fn("info", f"  📧 Found {len(decoded_emails)} valid email(s) after decoding")
 
     # Search for missing phones
     if "phone" in missing_fields:
@@ -105,6 +115,7 @@ async def search_google_for_emails(
         f"{company_name} {location} email contact",
         f"{company_name} {location} contact email address",
         f"{company_name} {location} official email",
+        f'"{company_name}" email',
     ]
 
     from playwright.async_api import async_playwright
@@ -133,13 +144,18 @@ async def search_google_for_emails(
 
                 # Extract emails from search result snippets
                 page_text = await page.locator('body').inner_text(timeout=5000)
+                
+                # URL-decode the text first to handle encoded emails
+                page_text = unquote(page_text)
+                
                 email_pattern = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}')
                 found_emails = email_pattern.findall(page_text)
 
-                # Filter generic emails
-                generic_prefixes = {'info', 'contact', 'admin', 'support', 'noreply', 'no-reply', 'sales', 'help'}
+                # Filter generic emails and validate
+                generic_prefixes = {'info', 'contact', 'admin', 'support', 'noreply', 'no-reply', 'sales', 'help', 'hr', 'careers', 'jobs'}
                 for email in found_emails:
-                    prefix = email.split('@')[0].lower()
+                    email = email.strip().lower()
+                    prefix = email.split('@')[0]
                     if prefix not in generic_prefixes and email not in emails:
                         emails.append(email)
 
@@ -168,6 +184,7 @@ async def search_google_for_phones(
         f"{company_name} {location} phone number contact",
         f"{company_name} {location} telephone",
         f"{company_name} {location} mobile",
+        f'"{company_name}" phone',
     ]
 
     from playwright.async_api import async_playwright
@@ -229,6 +246,7 @@ async def search_google_for_websites(
         f"{company_name} {location} official website",
         f"{company_name} {location} site",
         f"{company_name} official website",
+        f'"{company_name}" website',
     ]
 
     from playwright.async_api import async_playwright
