@@ -154,9 +154,28 @@ def get_search_stats(query: str) -> Dict:
     - pending: Count of pending listings
     - failed: Count of failed listings
     - remaining: Pending + failed (can retry)
+    
+    Uses case-insensitive matching to handle query format differences.
     """
     with get_db() as conn:
-        search = conn.execute("SELECT * FROM searches WHERE query = ?", (query,)).fetchone()
+        # Use case-insensitive matching and LIKE for flexibility
+        search = conn.execute(
+            "SELECT * FROM searches WHERE LOWER(query) = LOWER(?)",
+            (query,)
+        ).fetchone()
+        
+        # If exact match fails, try partial match
+        if not search:
+            # Extract the business type part and try to match
+            import re
+            match = re.match(r'^(.+?)\s+in\s+', query)
+            if match:
+                business_part = match.group(1).strip()
+                search = conn.execute(
+                    "SELECT * FROM searches WHERE LOWER(query) LIKE LOWER(?)",
+                    (f"%{business_part}%",)
+                ).fetchone()
+        
         if not search:
             return None
 
