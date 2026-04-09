@@ -59,7 +59,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.9"  # Fallback version
+    APP_VERSION = "V2.10"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)

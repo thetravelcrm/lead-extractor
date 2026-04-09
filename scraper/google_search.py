@@ -319,54 +319,65 @@ async def search_google_maps(
                     except:
                         pass
 
-                # Process each card - click to get ALL data
+                # Process each card - extract business data
                 for card in cards:
                     if len(results) >= max_results:
                         break
                     try:
-                        # Click card to open side panel
-                        await card.click(timeout=2000)
-                        await page.wait_for_timeout(2000)
+                        # Get name from card's aria-label
+                        name = (await card.get_attribute("aria-label") or "").strip()
 
-                        # Extract ALL available data from the side panel
-                        # Name
-                        name = ""
-                        try:
-                            name_el = page.locator('h1, [role="heading"] div[jsaction], div.fontTitleMedium').first
-                            name = await name_el.inner_text(timeout=1000)
-                            name = name.strip().split('\n')[0] if name else ""
-                        except:
-                            pass
+                        # Clean up name - remove UI elements
+                        for suffix in [' · Share', ' · Save', ' · More options', 'Share', 'Save']:
+                            if name.endswith(suffix):
+                                name = name[:-len(suffix)].strip()
 
-                        if not name or len(name) < 3 or name in seen_names:
-                            try:
-                                await page.keyboard.press("Escape")
-                                await page.wait_for_timeout(300)
-                            except:
-                                pass
+                        # Validate name - must be a reasonable business name
+                        if not name or len(name) < 3 or len(name) > 150 or name in seen_names:
+                            continue
+
+                        # Skip if name looks like UI text (not a business)
+                        skip_keywords = ['results', 'search', 'nearby', 'map', 'navigation', 'directions', 'your location']
+                        if any(keyword in name.lower() for keyword in skip_keywords):
                             continue
 
                         seen_names.add(name)
 
-                        # Category / Business Type
-                        category = ""
+                        # Click card to open side panel for additional data
+                        await card.click(timeout=3000)
+                        await page.wait_for_timeout(3000)
+
+                        # Category / Business Type - from card or side panel
+                        category = business_type
                         try:
-                            cat_el = page.locator('div[aria-label*="Category"], span.fontBodyMedium').first
-                            category = await cat_el.inner_text(timeout=1000)
-                            category = category.strip().split('·')[0].strip() if category else ""
+                            # Try to get from side panel first
+                            for cat_selector in [
+                                'div[aria-label*="Category"] span',
+                                'span.fontBodyMedium',
+                                'div.fontBodyMedium span',
+                            ]:
+                                cat_el = page.locator(cat_selector).first
+                                if await cat_el.count() > 0:
+                                    cat_text = await cat_el.inner_text(timeout=1000)
+                                    if cat_text and len(cat_text) < 100 and '·' in cat_text:
+                                        category = cat_text.strip().split('·')[0].strip()
+                                        break
+                                    elif cat_text and len(cat_text) < 50:
+                                        category = cat_text.strip()
+                                        break
                         except:
                             pass
 
                         # Rating
                         rating = ""
                         try:
-                            rating_el = page.locator('div[aria-label*="star"] span, [class*="rating"]').first
-                            rating_text = await rating_el.inner_text(timeout=1000)
-                            # Extract number from text like "4.8 (90)" or just "4.8"
-                            import re
-                            rating_match = re.search(r'(\d+\.?\d*)', rating_text)
-                            if rating_match:
-                                rating = rating_match.group(1)
+                            rating_el = page.locator('div[aria-label*="star"] span, span[aria-label*="star"]').first
+                            if await rating_el.count() > 0:
+                                rating_text = await rating_el.inner_text(timeout=1000)
+                                import re
+                                rating_match = re.search(r'(\d+\.?\d*)', rating_text)
+                                if rating_match:
+                                    rating = rating_match.group(1)
                         except:
                             pass
 
@@ -374,37 +385,54 @@ async def search_google_maps(
                         review_count = ""
                         try:
                             review_el = page.locator('div[aria-label*="review"], span[aria-label*="review"]').first
-                            review_text = await review_el.inner_text(timeout=1000)
-                            import re
-                            review_match = re.search(r'(\d[\d,]*)', review_text)
-                            if review_match:
-                                review_count = review_match.group(1).replace(',', '')
+                            if await review_el.count() > 0:
+                                review_text = await review_el.inner_text(timeout=1000)
+                                import re
+                                review_match = re.search(r'(\d[\d,]*)', review_text)
+                                if review_match:
+                                    review_count = review_match.group(1).replace(',', '')
                         except:
                             pass
 
-                        # Phone Number
+                        # Phone Number - try multiple approaches
                         phone = ""
                         try:
-                            # Look for phone icon or tel: link
-                            phone_link = page.locator('a[href^="tel:"], button[data-item-id*="phone"]').first
-                            if await phone_link.count() > 0:
-                                href = await phone_link.get_attribute("href")
+                            # Method 1: Look for tel: links
+                            phone_links = await page.locator('a[href^="tel:"]').all()
+                            for plink in phone_links:
+                                href = await plink.get_attribute("href")
                                 if href and href.startswith("tel:"):
                                     phone = href.replace("tel:", "").strip()
-                            else:
-                                # Try to find phone in text
-                                phone_text = await page.locator('div[data-item-id*="phone"]').inner_text(timeout=1000)
-                                import re
-                                phone_match = re.search(r'([\d\s\-\+\(\)]{8,})', phone_text)
-                                if phone_match:
-                                    phone = phone_match.group(1).strip()
-                        except:
+                                    break
+
+                            # Method 2: Look for phone button
+                            if not phone:
+                                phone_btn = page.locator('button[data-item-id*="phone"]').first
+                                if await phone_btn.count() > 0:
+                                    phone_text = await phone_btn.inner_text(timeout=1000)
+                                    import re
+                                    phone_match = re.search(r'([\d\s\-\+\(\)]{8,})', phone_text)
+                                    if phone_match:
+                                        phone = phone_match.group(1).strip()
+
+                            # Method 3: Look for phone in text
+                            if not phone:
+                                phone_div = page.locator('div[data-item-id*="phone"]').first
+                                if await phone_div.count() > 0:
+                                    phone_text = await phone_div.inner_text(timeout=1000)
+                                    import re
+                                    phone_match = re.search(r'([\d\s\-\+\(\)]{8,})', phone_text)
+                                    if phone_match:
+                                        phone = phone_match.group(1).strip()
+                        except Exception as e:
+                            emit_fn("warn", f"  Phone extraction failed: {str(e)[:50]}")
                             pass
 
                         # Website URL
                         website_url = ""
                         try:
-                            web_link = page.locator('a[data-item-id="authority"], a[aria-label*="Website"]').first
+                            # Look for website link
+                            web_link = page.locator('a[data-item-id="authority"], a[aria-label*="Website" i], a[aria-label*="website" i]').first
                             if await web_link.count() > 0:
                                 href = await web_link.get_attribute("href")
                                 if href and href.startswith("http"):
@@ -415,25 +443,27 @@ async def search_google_maps(
                         # Address
                         address = ""
                         try:
-                            addr_el = page.locator('div[data-item-id="address"], button[data-item-id="address"]').first
-                            address = await addr_el.inner_text(timeout=1000)
-                            address = address.strip() if address else ""
+                            addr_btn = page.locator('button[data-item-id="address"]').first
+                            if await addr_btn.count() > 0:
+                                address = await addr_btn.inner_text(timeout=1000)
+                                address = address.strip() if address else ""
                         except:
                             pass
 
                         # Plus Code
                         plus_code = ""
                         try:
-                            plus_el = page.locator('div[data-item-id*="plus_code"], text:regex("[A-Z0-9]\\+[A-Z0-9]")').first
-                            plus_code = await plus_el.inner_text(timeout=1000)
-                            plus_code = plus_code.strip() if plus_code else ""
+                            plus_el = page.locator('div[data-item-id*="plus_code"]').first
+                            if await plus_el.count() > 0:
+                                plus_code = await plus_el.inner_text(timeout=1000)
+                                plus_code = plus_code.strip() if plus_code else ""
                         except:
                             pass
 
                         # Close side panel
                         try:
                             await page.keyboard.press("Escape")
-                            await page.wait_for_timeout(300)
+                            await page.wait_for_timeout(500)
                         except:
                             pass
 
@@ -448,10 +478,13 @@ async def search_google_maps(
                             "plus_code": plus_code,
                         })
 
+                        emit_fn("info", f"  ✅ Extracted: {name[:50]}")
+
                     except Exception as e:
+                        emit_fn("warn", f"  Card processing failed: {str(e)[:50]}")
                         try:
                             await page.keyboard.press("Escape")
-                            await page.wait_for_timeout(300)
+                            await page.wait_for_timeout(500)
                         except:
                             pass
                         continue
