@@ -47,6 +47,11 @@ from storage.database import (
 from scraper.linkedin_search import search_linkedin
 from scraper.instagram_search import search_instagram
 from scraper.enrichment import enrich_company
+from scraper.advanced_crawler import AdvancedCrawler
+from scraper.advanced_email_extractor import extract_all_emails
+from scraper.advanced_phone_extractor import extract_all_phones
+from scraper.smart_fallback import SmartFallback
+from processor.lead_scoring import calculate_lead_score, clean_and_normalize_lead
 
 # Initialize database on startup
 init_db()
@@ -59,7 +64,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.16"  # Fallback version
+    APP_VERSION = "V2.17"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -503,126 +508,166 @@ def _run_pipeline(job_id: str, params: dict) -> None:
               data={"current": 0, "total": total})
 
         # ----------------------------------------------------------------
-        # STAGE 2 — Visit websites & extract emails
+        # STAGE 2 — Visit websites & extract emails (HIGH-ACCURACY ENGINE)
         # ----------------------------------------------------------------
         # Process ALL listings - don't skip duplicates
-        # (Each listing is a different business even if they share a website)
         unique_listings = listings
-        skipped_dupes = 0
         total_unique = len(unique_listings)
         processed_count = 0
+
+        # Initialize advanced crawler and fallback system
+        advanced_crawler = AdvancedCrawler(max_pages=5, timeout_per_page=15000)
+        smart_fallback = SmartFallback(emit_fn=lambda level, msg: _emit(job_id, level, msg))
 
         for listing in unique_listings:
             # Check job timeout
             elapsed_minutes = (time.time() - start_time) / 60
             if elapsed_minutes > JOB_TIMEOUT_MINUTES:
-                _emit(job_id, "warn", 
+                _emit(job_id, "warn",
                       f"Job timeout reached ({JOB_TIMEOUT_MINUTES} min). Saving {len(all_leads)} leads collected so far.")
                 break
-            
+
             if is_cancelled(job_id):
                 _emit(job_id, "warn", "Job cancelled.")
                 break
-            
+
             processed_count += 1
             name         = listing.get("name", "")
             category     = listing.get("category", "") or business_type
             website_url  = listing.get("website_url", "")
+            maps_phone   = listing.get("phone", "")
+            maps_address = listing.get("address", "")
 
             _emit(job_id, "info",
                   f"[{processed_count}/{total_unique}] {name or 'Unknown'} — {website_url[:50] or 'no website'}",
                   data={"current": processed_count, "total": total_unique})
 
             emails = []
-            page_data = None
-            whatsapp_phone = ""
+            phones = []
+            whatsapp = ""
+            page_text = ""
 
             if website_url:
-                # ── HAS WEBSITE: Visit and extract emails ────────────────────────
+                # ── HAS WEBSITE: Use advanced multi-page crawler ────────────────────────
                 rate_limiter.acquire()
-                page_data = visit_website(website_url, session)
+                _emit(job_id, "info", f"  🌐 Crawling {website_url[:60]}...")
 
-                if page_data:
-                    from bs4 import BeautifulSoup
-                    try:
-                        soup = BeautifulSoup(page_data["html"][:200_000], "lxml")
-                    except Exception:
-                        soup = None
-
-                    # Use name from page if Maps name is empty
-                    if not name and soup:
-                        name = extract_company_name(soup, website_url)
-
-                    # BULLETPROOF: Extract emails from entire HTML source
-                    from scraper.website_visitor import extract_emails_from_source, extract_phones_from_source
-                    source_emails = extract_emails_from_source(page_data["html"])
-                    text_emails  = extract_emails(page_data["text"])
-                    mailto_emails = extract_emails_from_html(page_data["html"])
-                    # Merge all sources, keep order, validate
-                    all_raw = list(dict.fromkeys(
-                        [e for e in source_emails if validate_email(e)] +
-                        [e for e in text_emails if validate_email(e)] +
-                        [e for e in mailto_emails if validate_email(e)]
-                    ))
-                    emails = all_raw
-
-                    # Extract WhatsApp/Phone numbers
-                    found_phones = page_data.get("found_phones", [])
-                    source_phones = extract_phones_from_source(page_data["html"])
-                    all_phones = list(dict.fromkeys(found_phones + list(source_phones)))
-                    if all_phones:
-                        whatsapp_phone = all_phones[0]
-
-                    # STAGE 2.5: Google Search for additional emails (only if <3 emails found)
-                    if len(emails) < 3 and name:
-                        _emit(job_id, "info", f"  🔍 Web search for {name[:30]}...")
-                        rate_limiter.acquire()
-                        loop2 = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop2)
-                        try:
-                            search_emails_list = loop2.run_until_complete(
-                                search_emails_for_company(name, website_url, lambda lvl, msg: None)
-                            )
-                        except Exception:
-                            search_emails_list = []
-                        finally:
-                            loop2.close()
-
-                        # Validate and merge web search emails
-                        for se in search_emails_list:
-                            if validate_email(se) and se not in emails:
-                                emails.append(se)
-                                _emit(job_id, "info", f"  🌐 Web search found: {se}")
-
-            else:
-                # ── NO WEBSITE: Do Google search to find emails ─────────────────
-                # This is critical for companies without websites on Google Maps
-                _emit(job_id, "info", f"  🔍 No website — searching Google for {name[:40]}...")
-                rate_limiter.acquire()
-                loop2 = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop2)
                 try:
-                    # Search for company name + city to find emails from directories, social media, etc.
-                    search_emails_list = loop2.run_until_complete(
-                        search_emails_for_company(name, "", lambda lvl, msg: None)
+                    loop2 = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop2)
+                    crawl_result = loop2.run_until_complete(
+                        advanced_crawler.crawl_website(website_url)
                     )
-                except Exception:
-                    search_emails_list = []
-                finally:
                     loop2.close()
 
-                # Validate emails
-                for se in search_emails_list:
-                    if validate_email(se):
-                        emails.append(se)
+                    if crawl_result:
+                        page_text = crawl_result.get("all_text", "")
+                        all_html = crawl_result.get("all_html", "")
 
-                if emails:
-                    _emit(job_id, "success", f"  🌐 Found {len(emails)} email(s) via Google search: {', '.join(emails[:2])}")
-                else:
-                    _emit(job_id, "info", f"  No emails found via Google search for {name[:30]}")
+                        # Use name from page if Maps name is empty
+                        if not name and crawl_result.get("homepage"):
+                            from bs4 import BeautifulSoup
+                            try:
+                                soup = BeautifulSoup(crawl_result["homepage"]["html"][:200_000], "lxml")
+                                name_from_page = extract_company_name(soup, website_url)
+                                if name_from_page:
+                                    name = name_from_page
+                            except:
+                                pass
+
+                        # Advanced email extraction from all crawled pages
+                        email_result = extract_all_emails(all_html, page_text)
+                        emails = email_result["emails"]
+
+                        # Advanced phone extraction
+                        phone_result = extract_all_phones(all_html, page_text)
+                        phones = phone_result["phones"]
+                        if phone_result["whatsapp"]:
+                            whatsapp = phone_result["whatsapp"][0]
+
+                        pages_crawled = crawl_result.get("pages_crawled", 1)
+                        if pages_crawled > 1:
+                            _emit(job_id, "info", f"  📄 Crawled {pages_crawled} pages")
+
+                except Exception as exc:
+                    _emit(job_id, "warn", f"  Crawl failed: {str(exc)[:60]}")
+                    # Fallback to simple extraction
+                    try:
+                        rate_limiter.acquire()
+                        page_data = visit_website(website_url, session)
+                        if page_data:
+                            from scraper.website_visitor import extract_emails_from_source, extract_phones_from_source
+                            source_emails = extract_emails_from_source(page_data["html"])
+                            text_emails = extract_emails(page_data["text"])
+                            mailto_emails = extract_emails_from_html(page_data["html"])
+                            all_raw = list(dict.fromkeys(
+                                [e for e in source_emails if validate_email(e)] +
+                                [e for e in text_emails if validate_email(e)] +
+                                [e for e in mailto_emails if validate_email(e)]
+                            ))
+                            emails = all_raw
+                            page_text = page_data.get("text", "")
+                    except:
+                        pass
+
+                # STAGE 2.5: Google Search for additional emails (if <3 emails found)
+                if len(emails) < 3 and name:
+                    _emit(job_id, "info", f"  🔍 Web search for {name[:30]}...")
+                    rate_limiter.acquire()
+                    loop2 = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop2)
+                    try:
+                        search_emails_list = loop2.run_until_complete(
+                            search_emails_for_company(name, website_url, lambda lvl, msg: None)
+                        )
+                    except Exception:
+                        search_emails_list = []
+                    finally:
+                        loop2.close()
+
+                    for se in search_emails_list:
+                        if validate_email(se) and se not in emails:
+                            emails.append(se)
+                            _emit(job_id, "info", f"  🌐 Web search found: {se}")
+
+            else:
+                # ── NO WEBSITE: Use smart fallback system ─────────────────
+                _emit(job_id, "info", f"  🔍 No website — using smart fallback for {name[:40]}...")
+                rate_limiter.acquire()
+
+                try:
+                    loop2 = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop2)
+                    fallback_result = loop2.run_until_complete(
+                        smart_fallback.find_contact_info(name, city, country)
+                    )
+                    loop2.close()
+
+                    if fallback_result:
+                        emails = fallback_result.get("emails", [])
+                        phones = fallback_result.get("phones", [])
+                        if fallback_result.get("website"):
+                            website_url = fallback_result["website"]
+
+                        sources = fallback_result.get("sources_used", [])
+                        if sources:
+                            _emit(job_id, "info", f"  📊 Sources: {', '.join(sources)}")
+
+                except Exception as exc:
+                    _emit(job_id, "warn", f"  Fallback failed: {str(exc)[:60]}")
+
+                # Also try Google Maps phone
+                if not phones and maps_phone:
+                    phones = [maps_phone]
+                    whatsapp = maps_phone
+
+            # Use Maps phone if no other phones found
+            if not phones and maps_phone:
+                phones = [maps_phone]
+                if not whatsapp:
+                    whatsapp = maps_phone
 
             # Classify business type
-            page_text = page_data["text"] if page_data else ""
             final_category = classify_business(name, page_text[:3000], category or business_type)
             clean_name = clean_company_name(name)
 
@@ -633,17 +678,18 @@ def _run_pipeline(job_id: str, params: dict) -> None:
             if emails:
                 # ── ONE ROW PER EMAIL with numbered naming ────────────────────────
                 for idx, email in enumerate(emails, start=1):
-                    # Numbered naming: "Company Name 1", "Company Name 2", etc.
                     row_name = f"{clean_name} {idx}" if clean_name else f"Unknown {idx}"
 
                     lead = Lead(
                         company_name  = row_name,
                         email         = [email],
-                        whatsapp_phone = whatsapp_phone if idx == 1 else "",  # Only first row gets phone
+                        whatsapp_phone = whatsapp if idx == 1 else "",
                         business_type = final_category,
                         website_url   = website_url,
                         city          = city,
                         country       = country,
+                        phone         = phones[0] if phones and idx == 1 else "",
+                        address       = maps_address,
                         source_query  = query,
                     )
                     all_leads.append(lead)
@@ -653,12 +699,12 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     _jobs[job_id]["lead_count"] = len(all_leads)
 
                 _emit(job_id, "success",
-                      f"  {clean_name or '(no name)'} — {len(emails)} row(s): {', '.join(emails[:2])}"
+                      f"  {clean_name or '(no name)'} — {len(emails)} email(s): {', '.join(emails[:2])}"
                       + (" ..." if len(emails) > 2 else ""),
                       data={
                           "company":       clean_name,
                           "emails":        emails,
-                          "whatsapp_phone": whatsapp_phone,
+                          "whatsapp_phone": whatsapp,
                           "category":      final_category,
                           "website":       website_url,
                           "city":          city,
@@ -667,25 +713,17 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                           "total":         total_unique,
                       })
             else:
-                # No emails — still save the company row (without email)
-                # But extract phone/WhatsApp if available
-                whatsapp_phone = ""
-                if page_data:
-                    from scraper.website_visitor import extract_phones_from_source
-                    found_phones = page_data.get("found_phones", [])
-                    source_phones = extract_phones_from_source(page_data["html"])
-                    all_phones = list(dict.fromkeys(found_phones + list(source_phones)))
-                    if all_phones:
-                        whatsapp_phone = all_phones[0]
-
+                # No emails — still save the company row
                 lead = Lead(
                     company_name  = clean_name,
                     email         = [],
-                    whatsapp_phone = whatsapp_phone,
+                    whatsapp_phone = whatsapp,
                     business_type = final_category,
                     website_url   = website_url,
                     city          = city,
                     country       = country,
+                    phone         = phones[0] if phones else maps_phone,
+                    address       = maps_address,
                     source_query  = query,
                 )
                 all_leads.append(lead)
