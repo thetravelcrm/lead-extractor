@@ -363,12 +363,19 @@ async def search_google_maps(
                             ]:
                                 cat_el = page.locator(cat_selector).first
                                 if await cat_el.count() > 0:
-                                    cat_text = await cat_el.inner_text(timeout=1000)
-                                    if cat_text and len(cat_text) < 100 and '·' in cat_text:
-                                        category = cat_text.strip().split('·')[0].strip()
-                                        break
-                                    elif cat_text and len(cat_text) < 50:
-                                        category = cat_text.strip()
+                                    cat_text = (await cat_el.inner_text(timeout=1000) or "").strip()
+                                    if not cat_text:
+                                        continue
+                                    # Reject pure numbers — these are ratings (4.7, 4.9), not categories
+                                    if re.match(r'^\d+\.?\d*$', cat_text):
+                                        continue
+                                    if '·' in cat_text and len(cat_text) < 100:
+                                        candidate = cat_text.split('·')[0].strip()
+                                        if candidate and not re.match(r'^\d+\.?\d*$', candidate):
+                                            category = candidate
+                                            break
+                                    elif len(cat_text) < 50:
+                                        category = cat_text
                                         break
                         except:
                             pass
@@ -451,7 +458,10 @@ async def search_google_maps(
                             addr_btn = page.locator('button[data-item-id="address"]').first
                             if await addr_btn.count() > 0:
                                 address = await addr_btn.inner_text(timeout=1000)
-                                address = address.strip() if address else ""
+                                if address:
+                                    address = address.strip()
+                                    # Strip leading emoji / map-pin icon (📍 and similar)
+                                    address = re.sub(r'^[^\w\(]+', '', address).strip()
                         except:
                             pass
 

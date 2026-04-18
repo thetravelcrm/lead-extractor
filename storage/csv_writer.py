@@ -47,7 +47,7 @@ def append_lead_csv(lead: Lead, job_id: str) -> None:
     file_exists = os.path.exists(path)
 
     with open(path, mode="a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS, quoting=csv.QUOTE_ALL)
         if not file_exists:
             writer.writeheader()
         writer.writerow(lead.to_csv_row())
@@ -66,7 +66,7 @@ def write_leads_csv(leads: List[Lead], job_id: str) -> str:
     path = get_csv_path(job_id)
 
     with open(path, mode="w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS, quoting=csv.QUOTE_ALL)
         writer.writeheader()
         for lead in leads:
             writer.writerow(lead.to_csv_row())

@@ -156,37 +156,43 @@ def deduplicate_leads(leads: List[Lead]) -> List[Lead]:
     Remove duplicate leads.
 
     Two-pass deduplication:
-    Pass 1 — by normalised website URL (exact match).
+    Pass 1 — by (normalised URL + email) compound key.
+              This preserves multiple email rows for the same company (one-email-per-row
+              design) while still removing exact duplicates.
+              No-email rows are deduped by URL alone (keep richer by data_score).
     Pass 2 — by company name fuzzy match (similarity > 90 %).
               Uses rapidfuzz if available; falls back to exact-name match.
-
-    When two leads are considered duplicates the one with the higher
-    `data_score()` (more filled fields) is kept.
     """
-    # ---- Pass 1: URL dedup ----
-    url_map: dict = {}   # normalised_url → Lead
-    no_url: List[Lead] = []
+    # ---- Pass 1: (URL + email) compound dedup ----
+    seen_url_email: set = set()
+    url_only_map: dict = {}   # normalised_url → Lead (no-email rows)
+    unique: List[Lead] = []
 
     for lead in leads:
-        if lead.website_url:
-            key = _normalise_url(lead.website_url)
-            if key in url_map:
-                existing = url_map[key]
-                if lead.data_score() > existing.data_score():
-                    url_map[key] = lead
-            else:
-                url_map[key] = lead
-        else:
-            no_url.append(lead)
+        email_key = lead.email[0].lower() if lead.email else ""
+        url_key   = _normalise_url(lead.website_url) if lead.website_url else ""
 
-    deduped = list(url_map.values()) + no_url
+        if url_key and email_key:
+            compound = (url_key, email_key)
+            if compound not in seen_url_email:
+                seen_url_email.add(compound)
+                unique.append(lead)
+        elif url_key and not email_key:
+            if url_key not in url_only_map:
+                url_only_map[url_key] = lead
+            elif lead.data_score() > url_only_map[url_key].data_score():
+                url_only_map[url_key] = lead
+        else:
+            unique.append(lead)
+
+    unique.extend(url_only_map.values())
 
     # ---- Pass 2: Fuzzy name dedup ----
     try:
         from rapidfuzz import fuzz
 
         final: List[Lead] = []
-        for lead in deduped:
+        for lead in unique:
             merged = False
             for i, existing in enumerate(final):
                 if not lead.company_name or not existing.company_name:
@@ -206,5 +212,4 @@ def deduplicate_leads(leads: List[Lead]) -> List[Lead]:
         return final
 
     except ImportError:
-        # rapidfuzz not installed — return URL-deduped list
-        return deduped
+        return unique

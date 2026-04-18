@@ -64,7 +64,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.17"  # Fallback version
+    APP_VERSION = "V2.18"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -452,6 +452,51 @@ def _company_name_from_email(email: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Email domain-affinity helper
+# ---------------------------------------------------------------------------
+
+from urllib.parse import urlparse as _urlparse
+
+_FREE_EMAIL_PROVIDERS = frozenset({
+    "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+    "yahoo.co.in", "ymail.com", "rediffmail.com", "live.com",
+    "icloud.com", "me.com", "aol.com",
+})
+
+
+def _filter_emails_by_domain(emails: list, website_url: str) -> list:
+    """
+    Re-order emails so that addresses matching the company's own domain come first,
+    followed by free-provider emails (gmail etc.), then unrelated domains.
+    Never discards valid emails — just prioritises high-confidence ones.
+    """
+    if not emails:
+        return emails
+    if not website_url:
+        return emails
+    try:
+        netloc = _urlparse(website_url).netloc.lower()
+        site_domain = netloc.removeprefix("www.")
+        site_root   = site_domain.split(".")[0]
+    except Exception:
+        return emails
+
+    domain_match, generic, unrelated = [], [], []
+    for e in emails:
+        e_domain = e.split("@")[1].lower() if "@" in e else ""
+        if site_domain and (e_domain == site_domain
+                            or site_root in e_domain
+                            or e_domain in site_domain):
+            domain_match.append(e)
+        elif e_domain in _FREE_EMAIL_PROVIDERS:
+            generic.append(e)
+        else:
+            unrelated.append(e)
+
+    return domain_match + generic + unrelated or emails
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
@@ -549,6 +594,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
 
             if website_url:
                 # ── HAS WEBSITE: Use advanced multi-page crawler ────────────────────────
+                session.cookies.clear()   # Isolate cookies between companies
                 rate_limiter.acquire()
                 _emit(job_id, "info", f"  🌐 Crawling {website_url[:60]}...")
 
@@ -666,6 +712,9 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                 phones = [maps_phone]
                 if not whatsapp:
                     whatsapp = maps_phone
+
+            # Prioritise emails from company's own domain (avoids cross-company leakage)
+            emails = _filter_emails_by_domain(emails, website_url)
 
             # Classify business type
             final_category = classify_business(name, page_text[:3000], category or business_type)

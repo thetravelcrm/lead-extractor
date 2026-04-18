@@ -48,16 +48,16 @@ class Lead:
         return {
             "Company Name":  self.company_name,
             "Email(s)":      "; ".join(self.email),
-            "WhatsApp/Phone": self.whatsapp_phone,
+            "WhatsApp/Phone": str(self.whatsapp_phone or ""),
             "Business Type": self.business_type,
             "Website URL":   self.website_url,
             "City":          self.city,
             "Country":       self.country,
-            "Phone":         self.phone,
+            "Phone":         str(self.phone or ""),
             "Address":       self.address,
-            "Rating":        self.rating,
-            "Review Count":  self.review_count,
-            "Plus Code":     self.plus_code,
+            "Rating":        str(self.rating or ""),
+            "Review Count":  str(self.review_count or ""),
+            "Plus Code":     str(self.plus_code or ""),
             "Scraped At":    self.scraped_at,
         }
 
