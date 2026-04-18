@@ -442,26 +442,47 @@ async def search_google_maps(
                             emit_fn("warn", f"  Phone extraction failed: {str(e)[:50]}")
                             pass
 
-                        # Website URL — retry up to 3 times (side panel loads async)
+                        # Website URL — wait for it to appear (side panel loads async)
                         website_url = ""
-                        for _web_attempt in range(3):
+                        _web_sel = (
+                            'a[data-item-id="authority"], '
+                            'a[aria-label*="Website" i], '
+                            'a[aria-label*="website" i]'
+                        )
+                        _SKIP_DOMAINS = {
+                            "google.com", "google.co", "goo.gl", "wa.me",
+                            "facebook.com", "instagram.com", "twitter.com",
+                            "youtube.com", "maps.app",
+                        }
+                        try:
+                            await page.wait_for_selector(_web_sel, timeout=3000)
+                        except Exception:
+                            pass  # Not found in time — proceed anyway
+                        try:
+                            web_link = page.locator(_web_sel).first
+                            if await web_link.count() > 0:
+                                href = await web_link.get_attribute("href")
+                                if href and href.startswith("http"):
+                                    if not any(d in href for d in _SKIP_DOMAINS):
+                                        website_url = href.split("?")[0]
+                        except Exception:
+                            pass
+
+                        # Broader fallback: any external link in the side panel
+                        if not website_url:
                             try:
-                                web_link = page.locator(
-                                    'a[data-item-id="authority"], '
-                                    'a[aria-label*="Website" i], '
-                                    'a[aria-label*="website" i]'
-                                ).first
-                                if await web_link.count() > 0:
-                                    href = await web_link.get_attribute("href")
+                                panel_links = await page.locator(
+                                    'div[role="main"] a[href^="http"], '
+                                    'div[jscontroller] a[href^="http"]'
+                                ).all()
+                                for pl in panel_links:
+                                    href = await pl.get_attribute("href") or ""
                                     if href and href.startswith("http"):
-                                        if "google.com" not in href and "goo.gl" not in href:
+                                        if not any(d in href for d in _SKIP_DOMAINS):
                                             website_url = href.split("?")[0]
                                             break
-                                if _web_attempt < 2:
-                                    await page.wait_for_timeout(800)
-                            except:
-                                if _web_attempt < 2:
-                                    await page.wait_for_timeout(800)
+                            except Exception:
+                                pass
 
                         # Address
                         address = ""
