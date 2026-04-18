@@ -201,7 +201,7 @@ def deduplicate_leads(leads: List[Lead]) -> List[Lead]:
                     lead.company_name.lower(),
                     existing.company_name.lower(),
                 )
-                if score > 90:
+                if score > 95:
                     # Keep the richer lead
                     if lead.data_score() > existing.data_score():
                         final[i] = lead

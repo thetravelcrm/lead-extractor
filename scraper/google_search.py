@@ -136,23 +136,62 @@ async def search_google_maps(
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
+                "--disable-extensions",
+                "--disable-infobars",
+                "--window-size=1400,900",
+                "--lang=en-US,en",
             ],
         )
         context = await browser.new_context(
             user_agent=random.choice(USER_AGENTS),
             viewport={"width": 1400, "height": 900},
             locale="en-US",
+            timezone_id="America/New_York",
+            permissions=["geolocation"],
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            },
         )
-        await context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+            window.chrome = {runtime: {}};
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) =>
+                parameters.name === 'notifications'
+                    ? Promise.resolve({state: Notification.permission})
+                    : originalQuery(parameters);
+        """)
         page = await context.new_page()
 
         try:
             # Use domcontentloaded — Maps never reaches networkidle
-            await page.goto(maps_url, wait_until="domcontentloaded", timeout=45_000)
-            await page.wait_for_timeout(3000)  # Give Maps time to render
+            await page.goto(maps_url, wait_until="domcontentloaded", timeout=60_000)
+            await page.wait_for_timeout(4000)  # Give Maps time to render
+
+            # Handle consent.google.com redirect (common on HF Spaces / EU IPs)
+            current_url = page.url
+            if "consent.google.com" in current_url or "accounts.google.com" in current_url:
+                emit_fn("warn", f"Redirected to consent page: {current_url[:80]}")
+                for sel in [
+                    'button:has-text("Accept all")',
+                    'button:has-text("Agree")',
+                    'button[aria-label*="Accept"]',
+                    'form[action*="consent"] button[type="submit"]',
+                ]:
+                    try:
+                        btn = page.locator(sel).first
+                        if await btn.is_visible(timeout=3000):
+                            await btn.click()
+                            emit_fn("info", "Accepted consent redirect.")
+                            await page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                            await page.wait_for_timeout(3000)
+                            break
+                    except Exception:
+                        pass
 
             # Accept cookies / consent FIRST (before looking for results)
             emit_fn("info", "Checking for cookie consent...")
@@ -196,14 +235,14 @@ async def search_google_maps(
             
             if not feed_found:
                 emit_fn("warn", "No results feed found — Maps may have changed layout or blocked the request.")
-                # Try to debug: check if page loaded at all
                 try:
                     page_title = await page.title()
                     page_url = page.url
                     emit_fn("warn", f"Page title: {page_title}, URL: {page_url[:80]}")
                 except Exception:
                     pass
-                return results
+                # Signal to caller that Maps was blocked (empty list)
+                return []
 
             emit_fn("info", "Google Maps loaded. Scrolling for results...")
             await page.wait_for_timeout(5000)  # Longer wait for full JS render
@@ -578,13 +617,155 @@ async def search_google_maps(
                     pass
 
         except PWTimeout:
-            emit_fn("warn", "Google Maps timed out. The server IP may be rate-limited. Retrying with fallback...")
+            emit_fn("warn", "Google Maps timed out (IP may be rate-limited or blocked).")
         except Exception as exc:
             emit_fn("warn", f"Google Maps error: {exc}")
         finally:
             await browser.close()
 
     emit_fn("success", f"Google Maps: collected {len(results)} listings.")
+    return results
+
+
+async def search_overpass_fallback(
+    business_type: str,
+    city: str,
+    country: str,
+    max_results: int,
+    emit_fn: Callable,
+) -> List[Dict]:
+    """
+    Fallback business search using Overpass API (OpenStreetMap).
+    Free, no bot detection, returns real business data.
+    Used when Google Maps is blocked (e.g. HF Spaces datacenter IP).
+    Runs synchronous requests in a thread executor to stay async-compatible.
+    """
+    import asyncio
+    import requests as _requests
+    import functools
+
+    emit_fn("info", f"Trying Overpass API fallback for: {business_type} in {city}, {country}")
+
+    OSM_TAG_MAP = {
+        "travel agency": [("shop", "travel_agency"), ("office", "travel_agent")],
+        "travel": [("shop", "travel_agency"), ("office", "travel_agent")],
+        "restaurant": [("amenity", "restaurant"), ("amenity", "fast_food")],
+        "hotel": [("tourism", "hotel"), ("tourism", "guest_house")],
+        "hospital": [("amenity", "hospital"), ("amenity", "clinic")],
+        "pharmacy": [("amenity", "pharmacy")],
+        "bank": [("amenity", "bank")],
+        "school": [("amenity", "school")],
+        "gym": [("leisure", "fitness_centre")],
+        "salon": [("shop", "hairdresser"), ("shop", "beauty")],
+        "cafe": [("amenity", "cafe")],
+        "bar": [("amenity", "bar"), ("amenity", "pub")],
+        "supermarket": [("shop", "supermarket")],
+        "clinic": [("amenity", "clinic"), ("amenity", "doctors")],
+        "lawyer": [("office", "lawyer")],
+        "accountant": [("office", "accountant")],
+        "real estate": [("office", "estate_agent")],
+        "insurance": [("office", "insurance")],
+    }
+
+    btype_lower = business_type.lower()
+    tags = None
+    for key, val in OSM_TAG_MAP.items():
+        if key in btype_lower:
+            tags = val
+            break
+    if not tags:
+        # Generic fallback: search by name keyword
+        tags = [("name", f"~{business_type}")]
+
+    headers = {"User-Agent": "LeadExtractorBot/1.0 (lead-extraction-tool)"}
+
+    def _run_overpass() -> List[Dict]:
+        # Step 1: Geocode city via Nominatim
+        geo_url = (
+            "https://nominatim.openstreetmap.org/search"
+            f"?q={quote_plus(city + ', ' + country)}&format=json&limit=1"
+        )
+        try:
+            geo_resp = _requests.get(geo_url, headers=headers, timeout=10)
+            geo_data = geo_resp.json()
+        except Exception as e:
+            emit_fn("warn", f"Overpass geocode failed: {e}")
+            return []
+
+        if not geo_data:
+            emit_fn("warn", "Overpass: could not geocode city.")
+            return []
+
+        bbox = geo_data[0].get("boundingbox", [])
+        if len(bbox) < 4:
+            emit_fn("warn", "Overpass: no bounding box returned.")
+            return []
+
+        south, north, west, east = bbox[0], bbox[1], bbox[2], bbox[3]
+
+        tag_queries = ""
+        for k, v in tags:
+            tag_queries += f'  node["{k}"="{v}"]({south},{west},{north},{east});\n'
+            tag_queries += f'  way["{k}"="{v}"]({south},{west},{north},{east});\n'
+
+        overpass_query = (
+            "[out:json][timeout:25];\n"
+            "(\n"
+            f"{tag_queries}"
+            ");\n"
+            f"out center {max_results * 3};\n"
+        )
+
+        try:
+            ov_resp = _requests.post(
+                "https://overpass-api.de/api/interpreter",
+                data={"data": overpass_query},
+                headers=headers,
+                timeout=35,
+            )
+            data = ov_resp.json()
+        except Exception as e:
+            emit_fn("warn", f"Overpass query failed: {e}")
+            return []
+
+        elements = data.get("elements", [])
+        emit_fn("info", f"Overpass returned {len(elements)} raw elements.")
+
+        results: List[Dict] = []
+        seen: set = set()
+        for el in elements:
+            t = el.get("tags", {})
+            name = t.get("name") or t.get("name:en", "")
+            if not name or name.lower() in seen:
+                continue
+            seen.add(name.lower())
+
+            website = t.get("website") or t.get("contact:website") or t.get("url", "")
+            phone = t.get("phone") or t.get("contact:phone") or t.get("contact:mobile", "")
+            addr_parts = [
+                t.get("addr:housenumber", ""),
+                t.get("addr:street", ""),
+                t.get("addr:city", city),
+            ]
+            address = ", ".join(p for p in addr_parts if p)
+
+            results.append({
+                "name": name,
+                "category": business_type,
+                "website_url": website,
+                "phone": phone,
+                "address": address,
+                "city": t.get("addr:city", city),
+                "country": country,
+                "source": "overpass",
+            })
+            if len(results) >= max_results:
+                break
+        return results
+
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(None, _run_overpass)
+    emit_fn("info", f"Overpass fallback: {len(results)} businesses found.")
     return results
 
 

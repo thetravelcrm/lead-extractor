@@ -34,7 +34,7 @@ from processor.classifier import classify_business
 from scraper.anti_bot import build_session, random_delay, RateLimiter
 from scraper.extractor import extract_emails, extract_emails_from_html, extract_company_name
 from scraper.website_visitor import visit_website
-from scraper.google_search import build_query, search_google_maps
+from scraper.google_search import build_query, search_google_maps, search_overpass_fallback
 from scraper.web_search import search_emails_for_company
 from storage.csv_writer import append_lead_csv, write_leads_csv, get_csv_path
 from storage.sheets_writer import check_sheets_credentials, append_leads_to_sheet
@@ -64,7 +64,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.18"  # Fallback version
+    APP_VERSION = "V2.19"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -485,8 +485,9 @@ def _filter_emails_by_domain(emails: list, website_url: str) -> list:
     for e in emails:
         e_domain = e.split("@")[1].lower() if "@" in e else ""
         if site_domain and (e_domain == site_domain
-                            or site_root in e_domain
-                            or e_domain in site_domain):
+                            or e_domain.endswith("." + site_domain)
+                            or site_domain.endswith("." + e_domain)
+                            or (site_root and len(site_root) > 4 and site_root in e_domain)):
             domain_match.append(e)
         elif e_domain in _FREE_EMAIL_PROVIDERS:
             generic.append(e)
@@ -544,7 +545,16 @@ def _run_pipeline(job_id: str, params: dict) -> None:
             return
 
         if not listings:
-            _emit(job_id, "warn", "No listings found on Google Maps. Try a different search.")
+            _emit(job_id, "warn", "Google Maps returned 0 results — trying Overpass API (OpenStreetMap) fallback...")
+            loop2 = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop2)
+            listings = loop2.run_until_complete(
+                search_overpass_fallback(business_type, city, country, max_results, emit_fn)
+            )
+            loop2.close()
+
+        if not listings:
+            _emit(job_id, "warn", "No listings found via Google Maps or Overpass fallback. Try a different search.")
             _finish_job(job_id, all_leads)
             return
 
