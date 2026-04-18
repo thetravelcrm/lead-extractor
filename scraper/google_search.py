@@ -350,7 +350,7 @@ async def search_google_maps(
 
                         # Click card to open side panel for additional data
                         await card.click(timeout=3000)
-                        await page.wait_for_timeout(3000)
+                        await page.wait_for_timeout(2500)
 
                         # Category / Business Type - from card or side panel
                         category = business_type
@@ -583,6 +583,18 @@ async def search_google_maps(
             emit_fn("warn", f"Google Maps error: {exc}")
         finally:
             await browser.close()
+
+    # Clear website URLs that appear for multiple companies — stale panel data.
+    # The FIRST company with a given URL keeps it (that's the one whose panel actually loaded).
+    # All subsequent companies sharing the same URL get cleared.
+    seen_urls: set = set()
+    for r in results:
+        url = r.get("website_url", "")
+        if url:
+            if url in seen_urls:
+                r["website_url"] = ""
+            else:
+                seen_urls.add(url)
 
     emit_fn("success", f"Google Maps: collected {len(results)} listings.")
     return results
