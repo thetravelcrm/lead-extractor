@@ -202,14 +202,64 @@ def deduplicate_leads(leads: List[Lead]) -> List[Lead]:
                     existing.company_name.lower(),
                 )
                 if score > 95:
-                    # Keep the richer lead
                     if lead.data_score() > existing.data_score():
                         final[i] = lead
                     merged = True
                     break
             if not merged:
                 final.append(lead)
-        return final
-
     except ImportError:
-        return unique
+        final = unique
+
+    # ---- Pass 3: (normalized_name + city + phone) cross-source dedup ----
+    def _norm(s: str) -> str:
+        return re.sub(r'[^a-z0-9]', '', s.lower()) if s else ""
+
+    seen_ncp: set = set()
+    deduped_final: List[Lead] = []
+    for lead in final:
+        phone_key = re.sub(r'\D', '', lead.phone or lead.whatsapp_phone or "")[-10:]
+        name_key  = _norm(lead.company_name)[:20]
+        city_key  = _norm(lead.city)[:10]
+        key = (name_key, city_key, phone_key) if phone_key else None
+        if key and key in seen_ncp:
+            continue
+        if key:
+            seen_ncp.add(key)
+        deduped_final.append(lead)
+
+    return deduped_final
+
+
+def add_validation_flags(leads: List[Lead]) -> List[Lead]:
+    """
+    Set lead.validation_flag for suspicious data:
+    - EMAIL_SHARED: same email in 3+ different companies
+    - WEBSITE_SHARED: same website for 3+ different companies
+    - NO_EMAIL: lead has no email address
+    Modifies in-place and returns the list.
+    """
+    from collections import Counter
+
+    email_counts: Counter = Counter()
+    website_counts: Counter = Counter()
+
+    for lead in leads:
+        for e in lead.email:
+            email_counts[e.lower()] += 1
+        if lead.website_url:
+            website_counts[_normalise_url(lead.website_url)] += 1
+
+    for lead in leads:
+        flags = []
+        for e in lead.email:
+            if email_counts[e.lower()] >= 3:
+                flags.append("EMAIL_SHARED")
+                break
+        if lead.website_url and website_counts[_normalise_url(lead.website_url)] >= 3:
+            flags.append("WEBSITE_SHARED")
+        if not lead.email:
+            flags.append("NO_EMAIL")
+        lead.validation_flag = "|".join(flags) if flags else "OK"
+
+    return leads

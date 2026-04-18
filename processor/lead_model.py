@@ -21,6 +21,8 @@ CSV_HEADERS = [
     "Rating",
     "Review Count",
     "Plus Code",
+    "Source",
+    "Validation Flag",
     "Scraped At",
 ]
 
@@ -40,6 +42,8 @@ class Lead:
     review_count:  str       = ""  # Number of reviews
     plus_code:     str       = ""  # Google Plus Code
     source_query:  str       = ""
+    source:        str       = ""
+    validation_flag: str     = ""
     scraped_at:    str       = field(
         default_factory=lambda: datetime.utcnow().isoformat(timespec="seconds") + "Z"
     )
@@ -58,6 +62,8 @@ class Lead:
             "Rating":        str(self.rating or ""),
             "Review Count":  str(self.review_count or ""),
             "Plus Code":     str(self.plus_code or ""),
+            "Source":        self.source or "",
+            "Validation Flag": self.validation_flag or "",
             "Scraped At":    self.scraped_at,
         }
 

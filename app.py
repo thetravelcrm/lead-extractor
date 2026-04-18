@@ -29,7 +29,7 @@ load_dotenv()
 from config.settings import FLASK_SECRET_KEY, FLASK_DEBUG, MAX_CONCURRENT_JOBS, JOB_TIMEOUT_MINUTES
 from sse.event_stream import create_job_queue, emit, event_generator, cancel_job, is_cancelled
 from processor.lead_model import Lead
-from processor.cleaner import validate_email, clean_company_name, deduplicate_leads
+from processor.cleaner import validate_email, clean_company_name, deduplicate_leads, add_validation_flags
 from processor.classifier import classify_business
 from scraper.anti_bot import build_session, random_delay, RateLimiter
 from scraper.extractor import extract_emails, extract_emails_from_html, extract_company_name
@@ -66,7 +66,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.23"  # Fallback version
+    APP_VERSION = "V2.24"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -819,6 +819,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
         # ----------------------------------------------------------------
         _emit(job_id, "info", f"Deduplicating {len(all_leads)} leads...")
         all_leads = deduplicate_leads(all_leads)
+        all_leads = add_validation_flags(all_leads)
         _emit(job_id, "info", f"{len(all_leads)} unique leads after dedup")
 
         # ----------------------------------------------------------------
@@ -1125,6 +1126,7 @@ def _run_batch_extraction(job_id: str, query: str, batch_size: int, use_sheets: 
         # Deduplicate
         _emit(job_id, "info", f"Deduplicating {len(all_leads)} leads...")
         all_leads = deduplicate_leads(all_leads)
+        all_leads = add_validation_flags(all_leads)
         _emit(job_id, "info", f"{len(all_leads)} unique leads after dedup")
 
         # Save CSV
