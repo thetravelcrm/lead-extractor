@@ -66,9 +66,10 @@ class SmartFallback:
         # Try multiple sources in parallel
         sources = [
             ("google", self._search_google),
+            ("facebook", self._search_facebook),
+            ("sulekha", self._search_sulekha),
             ("justdial", self._search_justdial),
             ("indiamart", self._search_indiamart),
-            ("facebook", self._search_facebook),
         ]
 
         for source_name, search_fn in sources:
@@ -273,46 +274,158 @@ class SmartFallback:
         return result if result["emails"] or result["phones"] else None
 
     async def _search_facebook(self, company_name: str, location: str) -> Optional[Dict]:
-        """Search Facebook for company contact info."""
+        """
+        Find Facebook business page via DuckDuckGo, then scrape it directly.
+        Public Facebook business pages show email/phone in the Intro section without login.
+        """
         result = {"emails": [], "phones": [], "website": ""}
 
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=True,
-                    args=["--no-sandbox", "--disable-setuid-sandbox"]
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"]
                 )
                 context = await browser.new_context(
                     viewport={"width": 1400, "height": 900},
                     locale="en-US",
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 )
                 page = await context.new_page()
 
-                # Search Facebook via Google
-                search_query = f'site:facebook.com "{company_name}" {location} contact'
-                encoded_query = quote_plus(search_query)
-                google_url = f"https://www.google.com/search?q={encoded_query}"
+                # Step 1: Find Facebook page URL via DuckDuckGo
+                search_query = f"{company_name} {location} facebook"
+                ddg_url = f"https://html.duckduckgo.com/html/?q={quote_plus(search_query)}"
 
-                await page.goto(google_url, wait_until="domcontentloaded", timeout=15000)
-                await page.wait_for_timeout(2000)
+                fb_url = ""
+                try:
+                    await page.goto(ddg_url, wait_until="domcontentloaded", timeout=15000)
+                    await page.wait_for_timeout(1500)
 
-                page_text = await page.inner_text("body")
-                page_text = unquote(page_text)
+                    links = await page.locator("a.result__a").all()
+                    for link in links:
+                        href = await link.get_attribute("href") or ""
+                        # Decode DDG redirect
+                        if "uddg=" in href:
+                            try:
+                                href = unquote(href.split("uddg=")[1].split("&")[0])
+                            except Exception:
+                                pass
+                        if "facebook.com" in href and "/p/" not in href:
+                            # Accept pages/ or people/ or direct business URLs
+                            if any(p in href for p in ["/pages/", "/people/", "facebook.com/"]):
+                                fb_url = href.split("?")[0]
+                                break
+                except Exception:
+                    pass
 
-                # Find emails
-                email_pattern = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}')
-                emails = email_pattern.findall(page_text)
-                for email in emails:
-                    email = email.lower().strip()
-                    if email not in result["emails"] and self._is_valid_email(email):
-                        result["emails"].append(email)
+                if not fb_url:
+                    await browser.close()
+                    return None
+
+                self.emit_fn("info", f"  📘 Facebook: visiting {fb_url[:70]}")
+
+                # Step 2: Visit the actual Facebook page
+                try:
+                    await page.goto(fb_url, wait_until="domcontentloaded", timeout=20000)
+                    await page.wait_for_timeout(3000)
+
+                    # Dismiss any login prompts by scrolling / clicking close
+                    for close_sel in ['div[aria-label="Close"]', 'div[role="button"][tabindex="0"]']:
+                        try:
+                            close_btn = page.locator(close_sel).first
+                            if await close_btn.is_visible(timeout=1500):
+                                await close_btn.click()
+                                await page.wait_for_timeout(800)
+                                break
+                        except Exception:
+                            pass
+
+                    page_text = await page.inner_text("body")
+
+                    # Extract emails
+                    email_pattern = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}')
+                    for email in email_pattern.findall(page_text):
+                        email = email.lower().strip()
+                        if email not in result["emails"] and self._is_valid_email(email):
+                            result["emails"].append(email)
+
+                    # Extract phone via tel: links first, then regex
+                    tel_links = await page.locator("a[href^='tel:']").all()
+                    for tl in tel_links:
+                        href = await tl.get_attribute("href") or ""
+                        phone = re.sub(r"[^\d+]", "", href.replace("tel:", ""))
+                        if len(phone) >= 8 and phone not in result["phones"]:
+                            result["phones"].append(phone)
+
+                    if not result["phones"]:
+                        phone_pattern = re.compile(r'(\+?[\d][\d\s\-\(\)]{7,14}\d)')
+                        for ph in phone_pattern.findall(page_text):
+                            cleaned = re.sub(r"[^\d+]", "", ph)
+                            if len(cleaned) >= 8 and cleaned not in result["phones"]:
+                                result["phones"].append(cleaned)
+
+                    # Extract external website
+                    ext_links = await page.locator("a[href^='http']").all()
+                    for link in ext_links:
+                        href = await link.get_attribute("href") or ""
+                        if "facebook.com" not in href and "instagram.com" not in href:
+                            result["website"] = href.split("?")[0]
+                            break
+
+                    if result["emails"] or result["phones"]:
+                        self.emit_fn("info", f"  📘 Facebook: found {len(result['emails'])} email(s), {len(result['phones'])} phone(s)")
+
+                except Exception as exc:
+                    self.emit_fn("warn", f"  Facebook page visit failed: {str(exc)[:80]}")
 
                 await browser.close()
+
+        except Exception as exc:
+            self.emit_fn("warn", f"  Facebook search failed: {str(exc)[:80]}")
+
+        return result if (result["emails"] or result["phones"]) else None
+
+    async def _search_sulekha(self, company_name: str, location: str) -> Optional[Dict]:
+        """Search Sulekha.com for company contact info."""
+        result = {"emails": [], "phones": [], "website": ""}
+
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            import random
+            from config.settings import USER_AGENTS
+
+            city = location.split(",")[0].strip()
+            query = quote_plus(f"{company_name} {city}")
+            url = f"https://www.sulekha.com/search/result/?searchkey={query}&src=search"
+            headers = {
+                "User-Agent": random.choice(USER_AGENTS),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }
+            resp = requests.get(url, headers=headers, timeout=12)
+            if resp.status_code != 200:
+                return None
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            page_text = soup.get_text(" ", strip=True)
+
+            email_pattern = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}')
+            for email in email_pattern.findall(page_text):
+                email = email.lower().strip()
+                if email not in result["emails"] and self._is_valid_email(email):
+                    result["emails"].append(email)
+
+            phone_pattern = re.compile(r'(\+?[\d][\d\s\-]{7,14}\d)')
+            for ph in phone_pattern.findall(page_text):
+                cleaned = re.sub(r"[^\d+]", "", ph)
+                if len(cleaned) >= 8 and cleaned not in result["phones"]:
+                    result["phones"].append(cleaned)
 
         except Exception:
             pass
 
-        return result if result["emails"] else None
+        return result if (result["emails"] or result["phones"]) else None
 
     def _is_valid_email(self, email: str) -> bool:
         """Basic email validation."""

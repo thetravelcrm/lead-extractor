@@ -2,9 +2,9 @@
 scraper/directory_search.py
 ---------------------------
 Scrape Indian business directories for company listings.
-Sources: Justdial, IndiaMART
+Sources: Justdial, IndiaMART, Sulekha
 
-Both return List[Dict] with keys:
+All return List[Dict] with keys:
     name, category, website_url, phone, address, city, country, source
 """
 
@@ -218,5 +218,110 @@ def search_indiamart(
 
     except Exception as exc:
         emit_fn("warn", f"IndiaMART error: {exc}")
+
+    return results
+
+
+def search_sulekha(
+    business_type: str,
+    city: str,
+    country: str,
+    max_results: int,
+    emit_fn: Callable,
+) -> List[Dict]:
+    """
+    Scrape Sulekha.com for Indian business listings.
+    Only used when country is India.
+    """
+    if "india" not in country.lower():
+        return []
+
+    bt_slug = business_type.strip().lower().replace(" ", "-")
+    city_slug = city.strip().lower().replace(" ", "-")
+    url = f"https://www.sulekha.com/{bt_slug}/{city_slug}"
+
+    emit_fn("info", f"Sulekha: scraping '{business_type}' in '{city}'")
+    results: List[Dict] = []
+    seen: set = set()
+
+    try:
+        resp = _get(url)
+        if resp.status_code != 200:
+            emit_fn("warn", f"Sulekha: HTTP {resp.status_code}")
+            return results
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        cards = (
+            soup.select("div.inlistingcard")
+            or soup.select("li.listing-card")
+            or soup.select("div[class*='listing']")
+            or soup.select("div.biz-listing")
+        )
+
+        emit_fn("info", f"Sulekha: found {len(cards)} raw cards")
+
+        for card in cards:
+            if len(results) >= max_results:
+                break
+
+            name_el = (
+                card.select_one("h2.name")
+                or card.select_one("h3.name")
+                or card.select_one("a.companyname")
+                or card.select_one("span.name")
+                or card.select_one("h2")
+                or card.select_one("h3")
+            )
+            name = name_el.get_text(strip=True) if name_el else ""
+            if not name or name.lower() in seen:
+                continue
+
+            phone = ""
+            ph_el = (
+                card.select_one("span.mobilenumber")
+                or card.select_one("span[class*='phone']")
+                or card.select_one("a[href^='tel:']")
+            )
+            if ph_el:
+                href = ph_el.get("href", "")
+                if href.startswith("tel:"):
+                    phone = href.replace("tel:", "").strip()
+                else:
+                    m = re.search(r'[\d\+][\d\s\-]{8,14}\d', ph_el.get_text())
+                    phone = m.group(0).strip() if m else ""
+
+            website_url = ""
+            for a in card.select("a[href]"):
+                href = a.get("href", "")
+                parsed = urlparse(href)
+                if (parsed.scheme in ("http", "https") and
+                        "sulekha.com" not in parsed.netloc):
+                    website_url = href
+                    break
+
+            addr_el = (
+                card.select_one("span.address")
+                or card.select_one("p.address")
+                or card.select_one("div[class*='address']")
+            )
+            address = addr_el.get_text(strip=True) if addr_el else ""
+
+            seen.add(name.lower())
+            results.append({
+                "name": name,
+                "category": business_type,
+                "website_url": website_url,
+                "phone": phone,
+                "address": address,
+                "city": city,
+                "country": country,
+                "source": "sulekha",
+            })
+
+        emit_fn("info", f"Sulekha: extracted {len(results)} listings")
+
+    except Exception as exc:
+        emit_fn("warn", f"Sulekha error: {exc}")
 
     return results

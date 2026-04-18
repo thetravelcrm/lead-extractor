@@ -442,18 +442,26 @@ async def search_google_maps(
                             emit_fn("warn", f"  Phone extraction failed: {str(e)[:50]}")
                             pass
 
-                        # Website URL
+                        # Website URL — retry up to 3 times (side panel loads async)
                         website_url = ""
-                        try:
-                            web_link = page.locator('a[data-item-id="authority"], a[aria-label*="Website" i], a[aria-label*="website" i]').first
-                            if await web_link.count() > 0:
-                                href = await web_link.get_attribute("href")
-                                if href and href.startswith("http"):
-                                    # Skip Google Maps / Google URLs — not a real business website
-                                    if "google.com" not in href and "goo.gl" not in href:
-                                        website_url = href.split("?")[0]
-                        except:
-                            pass
+                        for _web_attempt in range(3):
+                            try:
+                                web_link = page.locator(
+                                    'a[data-item-id="authority"], '
+                                    'a[aria-label*="Website" i], '
+                                    'a[aria-label*="website" i]'
+                                ).first
+                                if await web_link.count() > 0:
+                                    href = await web_link.get_attribute("href")
+                                    if href and href.startswith("http"):
+                                        if "google.com" not in href and "goo.gl" not in href:
+                                            website_url = href.split("?")[0]
+                                            break
+                                if _web_attempt < 2:
+                                    await page.wait_for_timeout(800)
+                            except:
+                                if _web_attempt < 2:
+                                    await page.wait_for_timeout(800)
 
                         # Address
                         address = ""
