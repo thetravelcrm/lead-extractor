@@ -148,8 +148,8 @@ def search_indiamart(
     if "india" not in country.lower():
         return []
 
-    query = f"{business_type} in {city}"
-    url = f"https://www.indiamart.com/search.mp?ss={quote_plus(query)}"
+    query = f"{business_type} {city}"
+    url = f"https://dir.indiamart.com/search.mp?ss={quote_plus(query)}"
 
     emit_fn("info", f"IndiaMART: scraping '{query}'")
     results: List[Dict] = []
