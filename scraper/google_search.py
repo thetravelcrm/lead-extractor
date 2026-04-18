@@ -737,6 +737,13 @@ async def search_overpass_fallback(
                 headers=headers,
                 timeout=35,
             )
+            if ov_resp.status_code != 200:
+                emit_fn("warn", f"Overpass HTTP {ov_resp.status_code}")
+                return []
+            raw_text = ov_resp.text.strip()
+            if not raw_text or not raw_text.startswith("{"):
+                emit_fn("warn", f"Overpass returned non-JSON response (len={len(raw_text)})")
+                return []
             data = ov_resp.json()
         except Exception as e:
             emit_fn("warn", f"Overpass query failed: {e}")
