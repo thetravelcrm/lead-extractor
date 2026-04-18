@@ -66,7 +66,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.24"  # Fallback version
+    APP_VERSION = "V2.25"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -768,6 +768,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                         phone         = phones[0] if phones and idx == 1 else "",
                         address       = maps_address,
                         source_query  = query,
+                        source        = listing.get("source", "google_maps"),
                     )
                     all_leads.append(lead)
                     append_lead_csv(lead, job_id)
@@ -802,6 +803,7 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                     phone         = phones[0] if phones else maps_phone,
                     address       = maps_address,
                     source_query  = query,
+                    source        = listing.get("source", "google_maps"),
                 )
                 all_leads.append(lead)
                 append_lead_csv(lead, job_id)
