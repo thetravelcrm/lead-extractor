@@ -176,7 +176,8 @@ async def search_google_maps(
             # Wait for results feed with multiple selector strategies
             emit_fn("info", "Waiting for Google Maps results to load...")
             feed_found = False
-            
+            matched_feed_selector = 'div[role="feed"]'  # default
+
             # Try multiple selectors that Google Maps might use
             for selector in [
                 'div[role="feed"]',
@@ -190,6 +191,7 @@ async def search_google_maps(
                     await page.wait_for_selector(selector, timeout=5000)
                     emit_fn("info", f"Found results container: {selector}")
                     feed_found = True
+                    matched_feed_selector = selector
                     break
                 except PWTimeout:
                     continue
@@ -226,7 +228,7 @@ async def search_google_maps(
 
                 # Strategy 1: Get all clickable elements in feed with aria-label
                 try:
-                    feed = page.locator('div[role="feed"]').first
+                    feed = page.locator(matched_feed_selector).first
                     if await feed.count() > 0:
                         # Get all elements with tabindex (clickable) inside feed
                         all_items = await feed.locator('div[tabindex="0"]').all()
@@ -250,7 +252,7 @@ async def search_google_maps(
 
                         if valid_cards:
                             cards = valid_cards
-                            best_selector = "div[role='feed'] div[tabindex='0']"
+                            best_selector = f"{matched_feed_selector} div[tabindex='0']"
                             emit_fn("info", f"Strategy 1: Found {len(valid_cards)} business listings")
                 except Exception as e:
                     emit_fn("warn", f"Strategy 1 failed: {str(e)[:100]}")
@@ -258,7 +260,7 @@ async def search_google_maps(
                 # Strategy 2: Try role="article" elements
                 if not cards:
                     try:
-                        articles = await page.locator('div[role="feed"] div[role="article"]').all()
+                        articles = await page.locator(f'{matched_feed_selector} div[role="article"]').all()
                         valid = []
                         for article in articles:
                             try:
@@ -271,7 +273,7 @@ async def search_google_maps(
                                 continue
                         if valid:
                             cards = valid
-                            best_selector = "div[role='feed'] div[role='article']"
+                            best_selector = f"{matched_feed_selector} div[role='article']"
                             emit_fn("info", f"Strategy 2: Found {len(valid)} listings")
                     except Exception as e:
                         emit_fn("warn", f"Strategy 2 failed: {str(e)[:100]}")
@@ -279,10 +281,10 @@ async def search_google_maps(
                 # Strategy 3: Try Nv2PK class (Google Maps listing class)
                 if not cards:
                     try:
-                        nv2pk = await page.locator('div[role="feed"] div.Nv2PK').all()
+                        nv2pk = await page.locator(f'{matched_feed_selector} div.Nv2PK').all()
                         if nv2pk:
                             cards = nv2pk
-                            best_selector = "div.Nv2PK"
+                            best_selector = f"{matched_feed_selector} div.Nv2PK"
                             emit_fn("info", f"Strategy 3: Found {len(nv2pk)} listings via Nv2PK class")
                     except Exception as e:
                         emit_fn("warn", f"Strategy 3 failed: {str(e)[:100]}")
@@ -290,10 +292,10 @@ async def search_google_maps(
                 # Strategy 4: Try fontBodyMedium (text container class)
                 if not cards:
                     try:
-                        font_medium = await page.locator('div[role="feed"] div.fontBodyMedium').all()
+                        font_medium = await page.locator(f'{matched_feed_selector} div.fontBodyMedium').all()
                         if font_medium:
                             cards = font_medium
-                            best_selector = "div.fontBodyMedium"
+                            best_selector = f"{matched_feed_selector} div.fontBodyMedium"
                             emit_fn("info", f"Strategy 4: Found {len(font_medium)} listings via fontBodyMedium")
                     except Exception as e:
                         emit_fn("warn", f"Strategy 4 failed: {str(e)[:100]}")
@@ -304,9 +306,9 @@ async def search_google_maps(
                     emit_fn("warn", "No valid business cards found. Scrolling to load more...")
                     # DEBUG: Log what's actually in the feed to understand structure
                     try:
-                        feed_debug = page.locator('div[role="feed"]').first
+                        feed_debug = page.locator(matched_feed_selector).first
                         child_count = await feed_debug.locator('div').count()
-                        emit_fn("info", f"DEBUG: Feed has {child_count} div elements")
+                        emit_fn("info", f"DEBUG: Feed ({matched_feed_selector}) has {child_count} div elements")
                         # Sample first 15 elements to see their structure
                         first_few = await feed_debug.locator('div').all()
                         for i, elem in enumerate(first_few[:15]):
@@ -443,12 +445,13 @@ async def search_google_maps(
                         # Website URL
                         website_url = ""
                         try:
-                            # Look for website link
                             web_link = page.locator('a[data-item-id="authority"], a[aria-label*="Website" i], a[aria-label*="website" i]').first
                             if await web_link.count() > 0:
                                 href = await web_link.get_attribute("href")
                                 if href and href.startswith("http"):
-                                    website_url = href.split("?")[0]
+                                    # Skip Google Maps / Google URLs — not a real business website
+                                    if "google.com" not in href and "goo.gl" not in href:
+                                        website_url = href.split("?")[0]
                         except:
                             pass
 
@@ -526,6 +529,7 @@ async def search_google_maps(
 
                 # Try scrolling the feed container first (most reliable)
                 for scroll_selector in [
+                    matched_feed_selector,
                     'div[role="feed"]',
                     'div[role="listbox"]',
                     'div[aria-label*="Results"]',
