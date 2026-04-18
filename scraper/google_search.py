@@ -368,15 +368,58 @@ async def search_google_maps(
                                     href = qs.get("q", qs.get("url", [href]))[0]
                                 if href.startswith("http"):
                                     _CARD_SKIP = {"google.com", "google.co", "goo.gl", "wa.me",
-                                                  "facebook.com", "instagram.com", "youtube.com"}
+                                                  "wa.link", "facebook.com", "instagram.com",
+                                                  "youtube.com", "c.petrol"}
                                     if not any(d in href for d in _CARD_SKIP):
                                         card_website_url = href.split("?")[0]
                         except Exception:
                             pass
 
-                        # Click card to open side panel for additional data
-                        await card.click(timeout=3000)
-                        await page.wait_for_timeout(2500)
+                        # Track previous result's website to detect stale panel reads
+                        _prev_website = results[-1]["website_url"] if results else ""
+
+                        # Click card — scroll into view first, then click
+                        prev_url = page.url
+                        try:
+                            await card.scroll_into_view_if_needed(timeout=2000)
+                        except Exception:
+                            pass
+                        try:
+                            await card.click(timeout=5000)
+                        except Exception:
+                            await card.click(force=True, timeout=5000)
+                        try:
+                            # Wait for URL to change (step 1: navigation started)
+                            await page.wait_for_url(lambda u: u != prev_url, timeout=5000)
+                            # Wait for h1 to contain this company's name (step 2: content rendered)
+                            name_check = re.sub(r'[^a-zA-Z0-9 ]', '', name)[:15].strip().lower()
+                            if name_check:
+                                try:
+                                    await page.wait_for_function(
+                                        f"document.querySelector('h1') && "
+                                        f"document.querySelector('h1').textContent.toLowerCase().includes('{name_check}')",
+                                        timeout=4000
+                                    )
+                                except Exception:
+                                    await page.wait_for_timeout(1500)
+                            else:
+                                await page.wait_for_timeout(2000)
+                            # Step 3: if previous company had a website, wait for that link
+                            # to update so we don't read stale data
+                            if _prev_website:
+                                escaped = _prev_website.replace("'", "\\'").replace("\\", "\\\\")
+                                try:
+                                    await page.wait_for_function(
+                                        "(function(){"
+                                        "var el=document.querySelector('a[data-item-id=\"authority\"]');"
+                                        f"return !el || el.href!=='{escaped}';"
+                                        "})();",
+                                        timeout=3000
+                                    )
+                                except Exception:
+                                    await page.wait_for_timeout(800)
+                        except Exception:
+                            await page.wait_for_timeout(3000)
 
                         # Category / Business Type - from card or side panel
                         category = business_type
@@ -470,16 +513,16 @@ async def search_google_maps(
                         website_url = ""
                         _SKIP_DOMAINS = {
                             "google.com", "google.co", "goo.gl", "wa.me",
-                            "facebook.com", "instagram.com", "twitter.com",
-                            "youtube.com", "maps.app",
+                            "wa.link", "facebook.com", "instagram.com", "twitter.com",
+                            "youtube.com", "maps.app", "c.petrol",
                         }
-                        # Selectors cover both <a> and <button>/<div> with data-item-id
+                        # Match any element type — Google Maps uses a, button, div for website links
                         _web_sel = (
-                            'a[data-item-id="authority"], '
-                            'button[data-item-id="authority"], '
-                            'div[data-item-id="authority"], '
-                            'a[aria-label*="Website" i], '
-                            'a[aria-label*="website" i]'
+                            '[data-item-id="authority"], '
+                            'a[aria-label*="website" i], '
+                            'button[aria-label*="website" i], '
+                            'a[aria-label*="Open website" i], '
+                            'a[aria-label*="Visit" i]'
                         )
                         try:
                             await page.wait_for_selector(_web_sel, timeout=3000)
@@ -530,9 +573,29 @@ async def search_google_maps(
                             except Exception:
                                 pass
 
-                        # Final fallback: use website found directly on the card
+                        # Fallback: use website found directly on the card button
                         if not website_url and card_website_url:
                             website_url = card_website_url
+
+                        # Last resort: scan panel text for domain-like patterns
+                        if not website_url:
+                            try:
+                                panel = page.locator('div[role="main"]').first
+                                if await panel.count() > 0:
+                                    panel_text = await panel.inner_text(timeout=2000)
+                                    _dom_pat = re.compile(
+                                        r'\b([a-z0-9][a-z0-9\-]*\.[a-z]{2,}(?:\.[a-z]{2})?)\b',
+                                        re.IGNORECASE
+                                    )
+                                    for m in _dom_pat.finditer(panel_text):
+                                        dom = m.group(1).lower()
+                                        if (dom not in _SKIP_DOMAINS and
+                                                not any(s in dom for s in _SKIP_DOMAINS) and
+                                                len(dom) > 4):
+                                            website_url = f"https://{dom}"
+                                            break
+                            except Exception:
+                                pass
 
                         # Address
                         address = ""
@@ -589,7 +652,6 @@ async def search_google_maps(
                 emit_fn(
                     "info",
                     f"Collected {len(results)}/{max_results} listings...",
-                    data={"current": len(results), "total": max_results},
                 )
 
                 # Check if we got new results in this scroll
