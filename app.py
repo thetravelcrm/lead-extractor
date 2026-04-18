@@ -35,6 +35,8 @@ from scraper.anti_bot import build_session, random_delay, RateLimiter
 from scraper.extractor import extract_emails, extract_emails_from_html, extract_company_name
 from scraper.website_visitor import visit_website
 from scraper.google_search import build_query, search_google_maps, search_overpass_fallback
+from scraper.google_search_html import search_google_html
+from scraper.directory_search import search_justdial, search_indiamart
 from scraper.web_search import search_emails_for_company
 from storage.csv_writer import append_lead_csv, write_leads_csv, get_csv_path
 from storage.sheets_writer import check_sheets_credentials, append_leads_to_sheet
@@ -64,7 +66,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.22"  # Fallback version
+    APP_VERSION = "V2.23"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -544,8 +546,21 @@ def _run_pipeline(job_id: str, params: dict) -> None:
             _finish_job(job_id, all_leads)
             return
 
+        # ── Fallback chain when Maps is blocked (e.g. HF Spaces datacenter IP) ──
         if not listings:
-            _emit(job_id, "warn", "Google Maps returned 0 results — trying Overpass API (OpenStreetMap) fallback...")
+            _emit(job_id, "warn", "Google Maps returned 0 — trying Google Search HTML...")
+            listings = search_google_html(business_type, city, country, max_results, emit_fn)
+
+        if not listings:
+            _emit(job_id, "warn", "Google Search HTML returned 0 — trying Justdial...")
+            listings = search_justdial(business_type, city, country, max_results, emit_fn)
+
+        if not listings:
+            _emit(job_id, "warn", "Justdial returned 0 — trying IndiaMART...")
+            listings = search_indiamart(business_type, city, country, max_results, emit_fn)
+
+        if not listings:
+            _emit(job_id, "warn", "IndiaMART returned 0 — trying Overpass (OpenStreetMap)...")
             loop2 = asyncio.new_event_loop()
             asyncio.set_event_loop(loop2)
             listings = loop2.run_until_complete(
@@ -554,9 +569,12 @@ def _run_pipeline(job_id: str, params: dict) -> None:
             loop2.close()
 
         if not listings:
-            _emit(job_id, "warn", "No listings found via Google Maps or Overpass fallback. Try a different search.")
+            _emit(job_id, "warn", "All sources returned 0 results. Try a different business type or city.")
             _finish_job(job_id, all_leads)
             return
+
+        source_used = listings[0].get("source", "google_maps") if listings else "unknown"
+        _emit(job_id, "info", f"Using {len(listings)} listings from source: {source_used}")
 
         total = len(listings)
         _emit(job_id, "info", f"Found {total} businesses on Maps. Extracting emails...",
