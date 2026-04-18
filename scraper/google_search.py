@@ -136,62 +136,23 @@ async def search_google_maps(
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
-                "--disable-extensions",
-                "--disable-infobars",
-                "--window-size=1400,900",
-                "--lang=en-US,en",
+                "--disable-gpu",
             ],
         )
         context = await browser.new_context(
             user_agent=random.choice(USER_AGENTS),
             viewport={"width": 1400, "height": 900},
             locale="en-US",
-            timezone_id="America/New_York",
-            permissions=["geolocation"],
-            extra_http_headers={
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            },
         )
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-            window.chrome = {runtime: {}};
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) =>
-                parameters.name === 'notifications'
-                    ? Promise.resolve({state: Notification.permission})
-                    : originalQuery(parameters);
-        """)
+        await context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         page = await context.new_page()
 
         try:
             # Use domcontentloaded — Maps never reaches networkidle
-            await page.goto(maps_url, wait_until="domcontentloaded", timeout=60_000)
-            await page.wait_for_timeout(4000)  # Give Maps time to render
-
-            # Handle consent.google.com redirect (common on HF Spaces / EU IPs)
-            current_url = page.url
-            if "consent.google.com" in current_url or "accounts.google.com" in current_url:
-                emit_fn("warn", f"Redirected to consent page: {current_url[:80]}")
-                for sel in [
-                    'button:has-text("Accept all")',
-                    'button:has-text("Agree")',
-                    'button[aria-label*="Accept"]',
-                    'form[action*="consent"] button[type="submit"]',
-                ]:
-                    try:
-                        btn = page.locator(sel).first
-                        if await btn.is_visible(timeout=3000):
-                            await btn.click()
-                            emit_fn("info", "Accepted consent redirect.")
-                            await page.wait_for_load_state("domcontentloaded", timeout=15_000)
-                            await page.wait_for_timeout(3000)
-                            break
-                    except Exception:
-                        pass
+            await page.goto(maps_url, wait_until="domcontentloaded", timeout=45_000)
+            await page.wait_for_timeout(3000)  # Give Maps time to render
 
             # Accept cookies / consent FIRST (before looking for results)
             emit_fn("info", "Checking for cookie consent...")
