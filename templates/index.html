@@ -329,8 +329,7 @@
 
   <!-- Buttons -->
   <div class="btn-row">
-    <button id="btn-start" onclick="startJob()">Phase 1: Extract from Google Maps</button>
-    <button id="btn-enrich" onclick="enrichData()" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;display:none;">Phase 2: Enrich Missing Data</button>
+    <button id="btn-start" onclick="startJob()">Extract from Google Maps</button>
     <button id="btn-abort" onclick="abortJob()">Abort</button>
     <button id="btn-download" onclick="downloadCSV()" disabled>Download CSV</button>
   </div>
@@ -620,9 +619,6 @@ function handleSSE(e) {
     document.getElementById('resume-banner').style.display = 'none';
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
-    // Show Phase 2 button after Phase 1 completes
-    document.getElementById('btn-enrich').style.display = 'inline-block';
-
     // Refresh sidebar to update stats
     loadSearchHistory();
   }
@@ -675,54 +671,6 @@ async function abortJob() {
   appendLog('warn','Abort requested — finishing current site...',currentTime());
 }
 function downloadCSV() { if (currentJobId) window.location.href = `/download/${currentJobId}`; }
-
-// ── Phase 2: Enrich Missing Data ──────────────────────────────────────────
-async function enrichData() {
-  const country = document.getElementById('country-input').value.trim();
-  const city = document.getElementById('city').value.trim();
-  const businessType = document.getElementById('business_type').value.trim();
-
-  if (!country || !businessType) {
-    alert('Please fill in Country and Business Type first.');
-    return;
-  }
-
-  const query = `${businessType} in ${city ? city + ', ' : ''}${country}`;
-
-  if (!confirm(`Start Phase 2: Enrich missing data for "${query}"?\n\nThis will search Google, LinkedIn, and Instagram to find missing emails, phones, and websites.`)) {
-    return;
-  }
-
-  resetUI();
-  setRunning(true);
-
-  const fd = new FormData();
-  fd.append('query', query);
-
-  let resp;
-  try {
-    resp = await fetch('/api/enrich_data', { method: 'POST', body: fd });
-  } catch (err) {
-    appendLog('error', 'Server unreachable: ' + err.message, '--:--:--');
-    setRunning(false);
-    return;
-  }
-
-  const data = await resp.json();
-  if (data.error) {
-    appendLog('error', data.error, '--:--:--');
-    setRunning(false);
-    return;
-  }
-
-  currentJobId = data.job_id;
-  appendLog('info', `Phase 2: Enriching data for ${data.total_listings} companies...`, currentTime());
-
-  localStorage.setItem('lead_job', JSON.stringify({ jobId: currentJobId, label: `Enrich: ${query}` }));
-  document.getElementById('resume-banner').style.display = 'none';
-
-  openStream();
-}
 
 // ── Log ───────────────────────────────────────────────────────────────────
 function appendLog(level, message, ts) {

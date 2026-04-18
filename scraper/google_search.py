@@ -350,6 +350,30 @@ async def search_google_maps(
 
                         seen_names.add(name)
 
+                        # Extract website from the card's Website button BEFORE clicking
+                        # (avoids depending on side panel async load)
+                        card_website_url = ""
+                        try:
+                            card_web_btn = card.locator(
+                                'a[aria-label*="website" i], '
+                                'a[aria-label*="Visit" i], '
+                                'a[data-item-id="authority"]'
+                            ).first
+                            if await card_web_btn.count() > 0:
+                                href = await card_web_btn.get_attribute("href") or ""
+                                # Decode Google redirect: google.com/url?q=https://real-site.com
+                                if "google.com/url" in href:
+                                    from urllib.parse import parse_qs, urlparse as _urlparse
+                                    qs = parse_qs(_urlparse(href).query)
+                                    href = qs.get("q", qs.get("url", [href]))[0]
+                                if href.startswith("http"):
+                                    _CARD_SKIP = {"google.com", "google.co", "goo.gl", "wa.me",
+                                                  "facebook.com", "instagram.com", "youtube.com"}
+                                    if not any(d in href for d in _CARD_SKIP):
+                                        card_website_url = href.split("?")[0]
+                        except Exception:
+                            pass
+
                         # Click card to open side panel for additional data
                         await card.click(timeout=3000)
                         await page.wait_for_timeout(2500)
@@ -442,47 +466,73 @@ async def search_google_maps(
                             emit_fn("warn", f"  Phone extraction failed: {str(e)[:50]}")
                             pass
 
-                        # Website URL — wait for it to appear (side panel loads async)
+                        # Website URL — multiple strategies to handle Google Maps' varied rendering
                         website_url = ""
-                        _web_sel = (
-                            'a[data-item-id="authority"], '
-                            'a[aria-label*="Website" i], '
-                            'a[aria-label*="website" i]'
-                        )
                         _SKIP_DOMAINS = {
                             "google.com", "google.co", "goo.gl", "wa.me",
                             "facebook.com", "instagram.com", "twitter.com",
                             "youtube.com", "maps.app",
                         }
+                        # Selectors cover both <a> and <button>/<div> with data-item-id
+                        _web_sel = (
+                            'a[data-item-id="authority"], '
+                            'button[data-item-id="authority"], '
+                            'div[data-item-id="authority"], '
+                            'a[aria-label*="Website" i], '
+                            'a[aria-label*="website" i]'
+                        )
                         try:
                             await page.wait_for_selector(_web_sel, timeout=3000)
                         except Exception:
-                            pass  # Not found in time — proceed anyway
+                            pass
+
                         try:
-                            web_link = page.locator(_web_sel).first
-                            if await web_link.count() > 0:
-                                href = await web_link.get_attribute("href")
-                                if href and href.startswith("http"):
-                                    if not any(d in href for d in _SKIP_DOMAINS):
-                                        website_url = href.split("?")[0]
+                            web_el = page.locator(_web_sel).first
+                            if await web_el.count() > 0:
+                                # Strategy A: standard href attribute
+                                href = await web_el.get_attribute("href") or ""
+                                if href.startswith("http") and not any(d in href for d in _SKIP_DOMAINS):
+                                    website_url = href.split("?")[0]
+
+                                # Strategy B: data-url / data-href attribute
+                                if not website_url:
+                                    for attr in ("data-url", "data-href", "data-value"):
+                                        val = await web_el.get_attribute(attr) or ""
+                                        if val.startswith("http") and not any(d in val for d in _SKIP_DOMAINS):
+                                            website_url = val.split("?")[0]
+                                            break
+
+                                # Strategy C: inner text looks like a domain (e.g. "sulekhaholidays.com")
+                                if not website_url:
+                                    txt = (await web_el.inner_text(timeout=1000) or "").strip()
+                                    if txt and "." in txt and " " not in txt and len(txt) < 80:
+                                        if not any(d in txt for d in _SKIP_DOMAINS):
+                                            website_url = ("https://" + txt) if not txt.startswith("http") else txt
                         except Exception:
                             pass
 
-                        # Broader fallback: any external link in the side panel
+                        # Broader fallback: scan any external <a> in the side panel
                         if not website_url:
                             try:
                                 panel_links = await page.locator(
-                                    'div[role="main"] a[href^="http"], '
-                                    'div[jscontroller] a[href^="http"]'
+                                    'div[role="main"] a[href^="http"]'
                                 ).all()
                                 for pl in panel_links:
                                     href = await pl.get_attribute("href") or ""
-                                    if href and href.startswith("http"):
-                                        if not any(d in href for d in _SKIP_DOMAINS):
-                                            website_url = href.split("?")[0]
-                                            break
+                                    # Decode Google redirect URLs
+                                    if "google.com/url" in href:
+                                        from urllib.parse import parse_qs, urlparse as _up
+                                        qs = parse_qs(_up(href).query)
+                                        href = qs.get("q", qs.get("url", [href]))[0]
+                                    if href.startswith("http") and not any(d in href for d in _SKIP_DOMAINS):
+                                        website_url = href.split("?")[0]
+                                        break
                             except Exception:
                                 pass
+
+                        # Final fallback: use website found directly on the card
+                        if not website_url and card_website_url:
+                            website_url = card_website_url
 
                         # Address
                         address = ""
