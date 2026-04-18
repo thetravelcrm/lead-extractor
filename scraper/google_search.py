@@ -657,8 +657,10 @@ async def search_google_maps(
                 # Check if we got new results in this scroll
                 if len(results) == last_count:
                     no_new_results_count += 1
-                    if no_new_results_count >= 8:  # Stop if 8 consecutive scrolls with no new results
-                        emit_fn("info", f"No new results after 8 scrolls. Total collected: {len(results)}")
+                    # Higher threshold for large searches; Maps lazy-loads near list end
+                    _stall_limit = 15 if max_results > 50 else 8
+                    if no_new_results_count >= _stall_limit:
+                        emit_fn("info", f"No new results after {_stall_limit} scrolls. Total collected: {len(results)}")
                         break
                 else:
                     no_new_results_count = 0
@@ -680,7 +682,7 @@ async def search_google_maps(
                         if await feed.count() > 0:
                             # Get current scroll position and scroll further
                             current_scroll = await feed.evaluate("el => el.scrollTop")
-                            await feed.evaluate("el => el.scrollTop += 1500")
+                            await feed.evaluate("el => el.scrollTop += 3000")
                             new_scroll = await feed.evaluate("el => el.scrollTop")
                             if new_scroll > current_scroll:
                                 scrolled = True
@@ -697,7 +699,7 @@ async def search_google_maps(
                     emit_fn("info", "Used keyboard End key to scroll")
 
                 # Wait for new results to load after scroll
-                await page.wait_for_timeout(3000)
+                await page.wait_for_timeout(4000)
                 scroll_attempts += 1
 
                 # Log progress every 10 scrolls
