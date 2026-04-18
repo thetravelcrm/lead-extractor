@@ -647,24 +647,32 @@ async def search_overpass_fallback(
     emit_fn("info", f"Trying Overpass API fallback for: {business_type} in {city}, {country}")
 
     OSM_TAG_MAP = {
-        "travel agency": [("shop", "travel_agency"), ("office", "travel_agent")],
-        "travel": [("shop", "travel_agency"), ("office", "travel_agent")],
-        "restaurant": [("amenity", "restaurant"), ("amenity", "fast_food")],
-        "hotel": [("tourism", "hotel"), ("tourism", "guest_house")],
-        "hospital": [("amenity", "hospital"), ("amenity", "clinic")],
-        "pharmacy": [("amenity", "pharmacy")],
-        "bank": [("amenity", "bank")],
-        "school": [("amenity", "school")],
-        "gym": [("leisure", "fitness_centre")],
-        "salon": [("shop", "hairdresser"), ("shop", "beauty")],
-        "cafe": [("amenity", "cafe")],
-        "bar": [("amenity", "bar"), ("amenity", "pub")],
-        "supermarket": [("shop", "supermarket")],
-        "clinic": [("amenity", "clinic"), ("amenity", "doctors")],
-        "lawyer": [("office", "lawyer")],
-        "accountant": [("office", "accountant")],
-        "real estate": [("office", "estate_agent")],
-        "insurance": [("office", "insurance")],
+        "travel agency":  [("shop", "travel_agency"),   ("office", "travel_agent")],
+        "travel":         [("shop", "travel_agency"),   ("office", "travel_agent")],
+        "packers":        [("office", "moving_company"), ("amenity", "storage")],
+        "movers":         [("office", "moving_company")],
+        "courier":        [("amenity", "post_office"),  ("shop", "courier")],
+        "restaurant":     [("amenity", "restaurant"),   ("amenity", "fast_food")],
+        "hotel":          [("tourism", "hotel"),        ("tourism", "guest_house")],
+        "hospital":       [("amenity", "hospital"),     ("amenity", "clinic")],
+        "pharmacy":       [("amenity", "pharmacy")],
+        "bank":           [("amenity", "bank")],
+        "school":         [("amenity", "school")],
+        "gym":            [("leisure", "fitness_centre")],
+        "salon":          [("shop", "hairdresser"),     ("shop", "beauty")],
+        "cafe":           [("amenity", "cafe")],
+        "bar":            [("amenity", "bar"),          ("amenity", "pub")],
+        "supermarket":    [("shop", "supermarket")],
+        "clinic":         [("amenity", "clinic"),       ("amenity", "doctors")],
+        "lawyer":         [("office", "lawyer")],
+        "accountant":     [("office", "accountant")],
+        "real estate":    [("office", "estate_agent")],
+        "insurance":      [("office", "insurance")],
+        "catering":       [("amenity", "restaurant"),   ("shop", "catering")],
+        "security":       [("office", "security")],
+        "it company":     [("office", "company")],
+        "software":       [("office", "company")],
+        "consultancy":    [("office", "consulting")],
     }
 
     btype_lower = business_type.lower()
@@ -673,9 +681,11 @@ async def search_overpass_fallback(
         if key in btype_lower:
             tags = val
             break
-    if not tags:
-        # Generic fallback: search by name keyword
-        tags = [("name", f"~{business_type}")]
+
+    _regex_fallback = tags is None
+    if _regex_fallback:
+        keyword = btype_lower.split()[0]
+        tags = [("__regex__", keyword)]
 
     headers = {"User-Agent": "LeadExtractorBot/1.0 (lead-extraction-tool)"}
 
@@ -705,8 +715,12 @@ async def search_overpass_fallback(
 
         tag_queries = ""
         for k, v in tags:
-            tag_queries += f'  node["{k}"="{v}"]({south},{west},{north},{east});\n'
-            tag_queries += f'  way["{k}"="{v}"]({south},{west},{north},{east});\n'
+            if k == "__regex__":
+                tag_queries += f'  node["name"~"{v}",i]({south},{west},{north},{east});\n'
+                tag_queries += f'  way["name"~"{v}",i]({south},{west},{north},{east});\n'
+            else:
+                tag_queries += f'  node["{k}"="{v}"]({south},{west},{north},{east});\n'
+                tag_queries += f'  way["{k}"="{v}"]({south},{west},{north},{east});\n'
 
         overpass_query = (
             "[out:json][timeout:25];\n"
