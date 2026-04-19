@@ -20,32 +20,75 @@ from config.settings import USER_AGENTS
 
 
 _JUNK_DOMAINS = {
-    "google.com", "google.co.in", "google.co.uk", "youtube.com", "wikipedia.org",
-    "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com",
+    # Search engines & social
+    "google.com", "google.co.in", "google.co.uk", "google.ae", "youtube.com",
+    "wikipedia.org", "facebook.com", "instagram.com", "linkedin.com",
+    "twitter.com", "x.com", "duckduckgo.com", "bing.com", "yahoo.com",
+    # E-commerce / aggregators (India)
     "amazon.com", "amazon.in", "flipkart.com", "snapdeal.com",
     "justdial.com", "indiamart.com", "sulekha.com", "tradeindia.com",
-    "yellowpages.in", "quora.com", "reddit.com", "maps.google.com",
+    "yellowpages.in", "quora.com", "reddit.com",
+    # Reviews / directories
     "yelp.com", "tripadvisor.com", "zomato.com", "swiggy.com",
-    "duckduckgo.com", "bing.com", "yahoo.com",
+    "trustpilot.com", "glassdoor.com",
+    # UAE / GCC directories & news
+    "yello.ae", "yellowpages.ae", "dubizzle.com", "bayut.com",
+    "timeoutdubai.com", "visitdubai.com", "gulfnews.com", "khaleejtimes.com",
+    "thenationalnews.com", "zawya.com", "expatwoman.com",
+    "travelagencies.ae", "emiratesdiary.com", "dubaifaqs.com",
+    # Generic aggregators
+    "clutch.co", "goodfirms.io", "bark.com", "thumbtack.com",
+    "sortlist.com", "upcity.com", "designrush.com",
 }
+
+# Regex patterns that indicate a list/directory page rather than a business
+_JUNK_URL_PATTERNS = re.compile(
+    r'/(top-\d|best-\d|top-\d{2,}|list-of|category/|/search|'
+    r'travel-agents?/city|travel-agenc\w+/city|/agents?/|'
+    r'\d{1,4}-travel|travel-agenc\w+-in-)',
+    re.IGNORECASE
+)
+
+_SKIP_TITLE_PATTERNS = re.compile(
+    r'^(top \d|best \d|\d+ best|\d+ top|list of|the \d+ best|'
+    r'top-rated|best travel agenc|top travel agenc)',
+    re.IGNORECASE
+)
 
 _SKIP_TITLE_KEYWORDS = [
     "wikipedia", "quora", "reddit", "youtube", "how to", "what is",
-    "definition", "meaning", "list of", "top 10",
+    "definition", "meaning", "list of", "top 10", "top 15", "top 20",
+    "best travel agenc", "travel agents in", "travel agencies in",
 ]
 
 
 def _is_valid_business_url(url: str) -> bool:
     try:
-        netloc = urlparse(url).netloc.lower().removeprefix("www.")
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower().removeprefix("www.")
         if not netloc:
             return False
         for junk in _JUNK_DOMAINS:
             if netloc == junk or netloc.endswith("." + junk):
                 return False
+        # Reject URL paths that look like list/directory pages
+        if _JUNK_URL_PATTERNS.search(parsed.path):
+            return False
         return True
     except Exception:
         return False
+
+
+def _is_valid_business_title(name: str) -> bool:
+    """Return False if the title looks like a directory listing, not a business."""
+    if _SKIP_TITLE_PATTERNS.match(name):
+        return False
+    if any(kw in name.lower() for kw in _SKIP_TITLE_KEYWORDS):
+        return False
+    # Titles like "Top 1,566 Travel Agents in Dubai"
+    if re.search(r'\b\d[\d,]+\s+(travel|hotel|company|agenc)', name, re.IGNORECASE):
+        return False
+    return True
 
 
 def _extract_phone(text: str) -> str:
@@ -56,6 +99,13 @@ def _extract_phone(text: str) -> str:
 def _build_result(name: str, href: str, snippet: str,
                   business_type: str, city: str, country: str) -> Dict:
     website_url = href if _is_valid_business_url(href) else ""
+    # Use domain as name if original name looks like a listicle title
+    if website_url and not _is_valid_business_title(name):
+        try:
+            domain = urlparse(website_url).netloc.removeprefix("www.")
+            name = domain.split(".")[0].replace("-", " ").title()
+        except Exception:
+            pass
     return {
         "name": name,
         "category": business_type,
@@ -104,7 +154,7 @@ def _search_duckduckgo(query: str, max_results: int,
             name = link.get_text(strip=True)
             if not name or len(name) < 3 or name.lower() in seen:
                 continue
-            if any(kw in name.lower() for kw in _SKIP_TITLE_KEYWORDS):
+            if not _is_valid_business_title(name):
                 continue
 
             # DuckDuckGo wraps href in redirect: //duckduckgo.com/l/?uddg=<encoded_url>
@@ -172,7 +222,7 @@ def _search_bing(query: str, max_results: int,
             name = title_el.get_text(strip=True)
             if not name or len(name) < 3 or name.lower() in seen:
                 continue
-            if any(kw in name.lower() for kw in _SKIP_TITLE_KEYWORDS):
+            if not _is_valid_business_title(name):
                 continue
 
             href = title_el.get("href", "")

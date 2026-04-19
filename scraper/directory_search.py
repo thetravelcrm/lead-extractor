@@ -325,3 +325,94 @@ def search_sulekha(
         emit_fn("warn", f"Sulekha error: {exc}")
 
     return results
+
+
+def search_yello_ae(
+    business_type: str,
+    city: str,
+    country: str,
+    max_results: int,
+    emit_fn: Callable,
+) -> List[Dict]:
+    """
+    Scrape Yello.ae (UAE Yellow Pages) for business listings.
+    Only used when country is UAE / United Arab Emirates.
+    """
+    uae_names = {"uae", "united arab emirates", "emirates", "dubai", "abu dhabi",
+                 "sharjah", "ajman", "fujairah", "ras al khaimah", "umm al quwain"}
+    if not any(n in country.lower() or n in city.lower() for n in uae_names):
+        return []
+
+    city_slug = city.strip().lower().replace(" ", "-") or "dubai"
+    bt_slug = business_type.strip().lower().replace(" ", "-")
+    url = f"https://www.yello.ae/category/{bt_slug}/city:{city_slug}"
+
+    emit_fn("info", f"Yello.ae: scraping '{business_type}' in '{city}'")
+    results: List[Dict] = []
+    seen: set = set()
+
+    try:
+        resp = _get(url)
+        if resp.status_code != 200:
+            emit_fn("warn", f"Yello.ae: HTTP {resp.status_code}")
+            return results
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        cards = (
+            soup.select("div.listing-item")
+            or soup.select("div.company-item")
+            or soup.select("li.listing")
+            or soup.select("div[class*='listing']")
+            or soup.select("article")
+        )
+
+        emit_fn("info", f"Yello.ae: found {len(cards)} raw cards")
+
+        for card in cards:
+            if len(results) >= max_results:
+                break
+
+            name_el = (
+                card.select_one("h2 a") or card.select_one("h3 a")
+                or card.select_one("a.company-name") or card.select_one("h2")
+                or card.select_one("h3")
+            )
+            name = name_el.get_text(strip=True) if name_el else ""
+            if not name or name.lower() in seen:
+                continue
+
+            phone = ""
+            ph_el = card.select_one("a[href^='tel:']") or card.select_one("span.phone")
+            if ph_el:
+                href = ph_el.get("href", "")
+                phone = href.replace("tel:", "").strip() if href.startswith("tel:") else ph_el.get_text(strip=True)
+
+            website_url = ""
+            for a in card.select("a[href]"):
+                href = a.get("href", "")
+                if href.startswith("http") and "yello.ae" not in href:
+                    website_url = href.split("?")[0]
+                    break
+
+            addr_el = card.select_one("span.address") or card.select_one("p.address")
+            address = addr_el.get_text(strip=True) if addr_el else ""
+
+            seen.add(name.lower())
+            results.append({
+                "name": name,
+                "category": business_type,
+                "website_url": website_url,
+                "phone": phone,
+                "address": address,
+                "city": city,
+                "country": country,
+                "source": "yello_ae",
+            })
+
+        emit_fn("info", f"Yello.ae: extracted {len(results)} listings")
+
+    except Exception as exc:
+        emit_fn("warn", f"Yello.ae error: {exc}")
+
+    return results

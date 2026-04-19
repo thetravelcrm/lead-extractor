@@ -161,6 +161,9 @@ async def search_google_maps(
                 'button:has-text("Agree")',
                 'button:has-text("I agree")',
                 'button:has-text("Accept")',
+                'button:has-text("قبول الكل")',   # Arabic: Accept all
+                'button:has-text("موافق")',         # Arabic: Agree
+                'button:has-text("قبول")',          # Arabic: Accept
                 'form[action*="consent"] button[type="submit"]',
             ]:
                 try:

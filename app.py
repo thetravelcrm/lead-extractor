@@ -36,7 +36,7 @@ from scraper.extractor import extract_emails, extract_emails_from_html, extract_
 from scraper.website_visitor import visit_website
 from scraper.google_search import build_query, search_google_maps, search_overpass_fallback
 from scraper.google_search_html import search_google_html
-from scraper.directory_search import search_justdial, search_indiamart, search_sulekha
+from scraper.directory_search import search_justdial, search_indiamart, search_sulekha, search_yello_ae
 from scraper.web_search import search_emails_for_company
 from storage.csv_writer import append_lead_csv, write_leads_csv, get_csv_path
 from storage.sheets_writer import check_sheets_credentials, append_leads_to_sheet
@@ -66,7 +66,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.35"  # Fallback version
+    APP_VERSION = "V2.36"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -548,7 +548,11 @@ def _run_pipeline(job_id: str, params: dict) -> None:
 
         # ── Fallback chain when Maps is blocked (e.g. HF Spaces datacenter IP) ──
         if not listings:
-            _emit(job_id, "warn", "Google Maps returned 0 — trying Google Search HTML...")
+            _emit(job_id, "warn", "Google Maps returned 0 — trying Yello.ae (UAE Yellow Pages)...")
+            listings = search_yello_ae(business_type, city, country, max_results, emit_fn)
+
+        if not listings:
+            _emit(job_id, "warn", "Yello.ae returned 0 — trying Google Search HTML...")
             listings = search_google_html(business_type, city, country, max_results, emit_fn)
 
         if not listings:
