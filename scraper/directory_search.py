@@ -39,6 +39,7 @@ def search_justdial(
 ) -> List[Dict]:
     """
     Scrape Justdial for Indian business listings.
+    Uses updated selectors for Justdial's React-based layout (2024+).
     Only used when country is India.
     """
     if "india" not in country.lower():
@@ -60,10 +61,11 @@ def search_justdial(
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
+        # 2024 layout: div.resultbox is the card container
         cards = (
-            soup.select("li.cntanr")
+            soup.select("div.resultbox")
             or soup.select("div.resultbox_info")
-            or soup.select("div[class*='resultbox']")
+            or soup.select("li.cntanr")
             or soup.select("article")
         )
 
@@ -73,29 +75,46 @@ def search_justdial(
             if len(results) >= max_results:
                 break
 
+            # 2024: name is in h2.resultbox_title or span.resultbox_title_anc
             name_el = (
-                card.select_one("span.lng_78")
-                or card.select_one("a.ert")
-                or card.select_one("span[class*='companyname']")
+                card.select_one("span.resultbox_title_anc")
+                or card.select_one("h2.resultbox_title")
+                or card.select_one("a.resultbox_title_anc")
+                or card.select_one("span.lng_78")
                 or card.select_one("h2")
-                or card.select_one("h3")
             )
             name = name_el.get_text(strip=True) if name_el else ""
-            if not name or name.lower() in seen:
+            if not name or len(name) < 3 or name.lower() in seen:
+                continue
+            # Skip generic category headers
+            if name.lower().startswith("showing results"):
                 continue
 
-            # Phone — Justdial often stores in data attributes
+            # Phone: Justdial hides real numbers behind JS; try data attrs first
             phone = ""
-            phone_el = card.select_one("[data-phone]")
-            if phone_el:
-                phone = phone_el.get("data-phone", "")
+            for attr_sel in ["[data-phone]", "[data-mobile]"]:
+                ph_el = card.select_one(attr_sel)
+                if ph_el:
+                    phone = ph_el.get("data-phone") or ph_el.get("data-mobile") or ""
+                    if phone:
+                        break
             if not phone:
-                for sel in ["p.contact-info", "span.mobilesv", "p.contact_info"]:
+                for sel in ["p.contact-info", "span.mobilesv", "p.contact_info",
+                            "div.resultbox_contact"]:
                     ph_el = card.select_one(sel)
                     if ph_el:
                         m = re.search(r'[\d\+][\d\s\-]{8,14}\d', ph_el.get_text())
                         phone = m.group(0).strip() if m else ""
-                        break
+                        if phone:
+                            break
+
+            # Address
+            addr_el = (
+                card.select_one("ul.resultbox_address")
+                or card.select_one("p.address-info")
+                or card.select_one("span[class*='address']")
+            )
+            address = addr_el.get_text(strip=True) if addr_el else ""
 
             # Website (skip justdial internal links)
             website_url = ""
@@ -105,13 +124,6 @@ def search_justdial(
                 if parsed.scheme in ("http", "https") and "justdial" not in parsed.netloc:
                     website_url = href
                     break
-
-            addr_el = (
-                card.select_one("p.address-info")
-                or card.select_one("span[class*='address']")
-                or card.select_one("p.address")
-            )
-            address = addr_el.get_text(strip=True) if addr_el else ""
 
             seen.add(name.lower())
             results.append({
@@ -124,7 +136,6 @@ def search_justdial(
                 "country": country,
                 "source": "justdial",
             })
-            time.sleep(0.2)
 
         emit_fn("info", f"Justdial: extracted {len(results)} listings")
 
@@ -142,7 +153,8 @@ def search_indiamart(
     emit_fn: Callable,
 ) -> List[Dict]:
     """
-    Scrape IndiaMART for B2B/service business listings.
+    Scrape IndiaMART directory for business listings.
+    IndiaMART embeds company data as JSON in page source (2024+ layout).
     Only used when country is India.
     """
     if "india" not in country.lower():
@@ -161,55 +173,48 @@ def search_indiamart(
             emit_fn("warn", f"IndiaMART: HTTP {resp.status_code}")
             return results
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+        text = resp.text
 
-        cards = (
-            soup.select("div.dummywrap")
-            or soup.select("div[class*='bx']")
-            or soup.select("div.p-card")
-            or soup.select("div.organic-card")
-        )
+        # Extract all company name occurrences and paired pns (phone) fields
+        # Pattern: "companyname":"Acme Corp"  ...nearby...  "pns":"9876543210"
+        # Use finditer to get positions and pair them
+        name_matches = list(re.finditer(r'"companyname"\s*:\s*"([^"]+)"', text))
+        emit_fn("info", f"IndiaMART: found {len(name_matches)} company records in JSON")
 
-        emit_fn("info", f"IndiaMART: found {len(cards)} raw cards")
-
-        for card in cards:
+        for m in name_matches:
             if len(results) >= max_results:
                 break
 
-            name_el = (
-                card.select_one("a.clr-blk")
-                or card.select_one("h2.comp-name")
-                or card.select_one("span.clr-orng")
-                or card.select_one("h3")
-                or card.select_one("h2")
-            )
-            name = name_el.get_text(strip=True) if name_el else ""
-            if not name or name.lower() in seen:
+            name = m.group(1).strip()
+            if not name or name.lower() in seen or len(name) < 3:
+                continue
+            # Skip obviously generic/junk entries
+            if name.lower() in {"trustseal", "verified", "indiamart"}:
                 continue
 
+            # Look for phone (pns field) within 500 chars after this name occurrence
+            snippet = text[m.start(): m.start() + 600]
             phone = ""
-            ph_el = card.select_one("span[data-mobile]") or card.select_one("a[href^='tel:']")
-            if ph_el:
-                phone = ph_el.get("data-mobile") or ph_el.get("href", "").replace("tel:", "")
+            pns_m = re.search(r'"pns"\s*:\s*"([^"]+)"', snippet)
+            if pns_m:
+                phone = pns_m.group(1).strip()
 
-            website_url = ""
-            for a in card.select("a[href]"):
-                href = a.get("href", "")
-                if href.startswith("http") and "indiamart" not in href:
-                    website_url = href
-                    break
+            # City
+            city_m = re.search(r'"city"\s*:\s*"([^"]+)"', snippet)
+            city_val = city_m.group(1) if city_m else city
 
-            addr_el = card.select_one("span.add") or card.select_one("p.address")
-            address = addr_el.get_text(strip=True) if addr_el else ""
+            # Address
+            addr_m = re.search(r'"address"\s*:\s*"([^"]*)"', snippet)
+            address = addr_m.group(1).strip() if addr_m else ""
 
             seen.add(name.lower())
             results.append({
                 "name": name,
                 "category": business_type,
-                "website_url": website_url,
+                "website_url": "",
                 "phone": phone,
                 "address": address,
-                "city": city,
+                "city": city_val or city,
                 "country": country,
                 "source": "indiamart",
             })
