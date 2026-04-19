@@ -337,6 +337,7 @@ def search_yello_ae(
     """
     Scrape Yello.ae (UAE Yellow Pages) for business listings.
     Only used when country is UAE / United Arab Emirates.
+    Paginates through /category/{slug}/{page}/city:{city} until max_results reached.
     """
     uae_names = {"uae", "united arab emirates", "emirates", "dubai", "abu dhabi",
                  "sharjah", "ajman", "fujairah", "ras al khaimah", "umm al quwain"}
@@ -344,75 +345,106 @@ def search_yello_ae(
         return []
 
     city_slug = city.strip().lower().replace(" ", "-") or "dubai"
-    bt_slug = business_type.strip().lower().replace(" ", "-")
-    url = f"https://www.yello.ae/category/{bt_slug}/city:{city_slug}"
+    # Map common business type names to Yello.ae category slugs
+    _SLUG_MAP = {
+        "travel agency": "travel-agents",
+        "travel agencies": "travel-agents",
+        "hotel": "hotels",
+        "restaurant": "restaurants",
+        "real estate": "real-estate-agents",
+    }
+    bt_lower = business_type.strip().lower()
+    bt_slug = _SLUG_MAP.get(bt_lower, bt_lower.replace(" ", "-"))
 
-    emit_fn("info", f"Yello.ae: scraping '{business_type}' in '{city}'")
+    emit_fn("info", f"Yello.ae: scraping '{business_type}' in '{city}' (slug={bt_slug})")
     results: List[Dict] = []
     seen: set = set()
 
-    try:
-        resp = _get(url)
-        if resp.status_code != 200:
-            emit_fn("warn", f"Yello.ae: HTTP {resp.status_code}")
-            return results
+    # Page 1 URL: /category/{slug}/city:{city}
+    # Page N URL: /category/{slug}/{N}/city:{city}
+    page = 1
+    max_pages = max(1, max_results // 20) + 2  # ~21 cards per page
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+    while len(results) < max_results and page <= max_pages:
+        if page == 1:
+            url = f"https://www.yello.ae/category/{bt_slug}/city:{city_slug}"
+        else:
+            url = f"https://www.yello.ae/category/{bt_slug}/{page}/city:{city_slug}"
 
-        cards = (
-            soup.select("div.listing-item")
-            or soup.select("div.company-item")
-            or soup.select("li.listing")
-            or soup.select("div[class*='listing']")
-            or soup.select("article")
-        )
-
-        emit_fn("info", f"Yello.ae: found {len(cards)} raw cards")
-
-        for card in cards:
-            if len(results) >= max_results:
+        try:
+            resp = _get(url)
+            if resp.status_code != 200:
+                emit_fn("warn", f"Yello.ae page {page}: HTTP {resp.status_code}")
                 break
 
-            name_el = (
-                card.select_one("h2 a") or card.select_one("h3 a")
-                or card.select_one("a.company-name") or card.select_one("h2")
-                or card.select_one("h3")
-            )
-            name = name_el.get_text(strip=True) if name_el else ""
-            if not name or name.lower() in seen:
-                continue
+            soup = BeautifulSoup(resp.text, "html.parser")
+            cards = soup.select("div.company")
 
-            phone = ""
-            ph_el = card.select_one("a[href^='tel:']") or card.select_one("span.phone")
-            if ph_el:
-                href = ph_el.get("href", "")
-                phone = href.replace("tel:", "").strip() if href.startswith("tel:") else ph_el.get_text(strip=True)
+            if not cards:
+                emit_fn("info", f"Yello.ae: no cards on page {page}, stopping")
+                break
 
-            website_url = ""
-            for a in card.select("a[href]"):
-                href = a.get("href", "")
-                if href.startswith("http") and "yello.ae" not in href:
-                    website_url = href.split("?")[0]
+            emit_fn("info", f"Yello.ae page {page}: {len(cards)} cards")
+
+            for card in cards:
+                if len(results) >= max_results:
                     break
 
-            addr_el = card.select_one("span.address") or card.select_one("p.address")
-            address = addr_el.get_text(strip=True) if addr_el else ""
+                name_el = card.select_one("h3 a") or card.select_one("h2 a")
+                name = name_el.get_text(strip=True) if name_el else ""
+                if not name or name.lower() in seen:
+                    continue
 
-            seen.add(name.lower())
-            results.append({
-                "name": name,
-                "category": business_type,
-                "website_url": website_url,
-                "phone": phone,
-                "address": address,
-                "city": city,
-                "country": country,
-                "source": "yello_ae",
-            })
+                # Phone: look for div.s containing phone icon
+                phone = ""
+                for s_div in card.select("div.s"):
+                    icon = s_div.select_one("i[aria-label]")
+                    if icon and "phone" in icon.get("aria-label", "").lower():
+                        span = s_div.select_one("span")
+                        if span:
+                            phone = span.get_text(strip=True)
+                        break
+                # Fallback: tel: link
+                if not phone:
+                    tel = card.select_one("a[href^='tel:']")
+                    if tel:
+                        phone = tel.get("href", "").replace("tel:", "").strip()
 
-        emit_fn("info", f"Yello.ae: extracted {len(results)} listings")
+                # Address
+                addr_el = card.select_one("div.address")
+                address = addr_el.get_text(strip=True) if addr_el else ""
+                # Strip "Address: " prefix
+                if address.startswith("Address:"):
+                    address = address[8:].strip()
 
-    except Exception as exc:
-        emit_fn("warn", f"Yello.ae error: {exc}")
+                # Company page URL on Yello.ae (we use it as website_url fallback key;
+                # the pipeline's SmartFallback will search for the real site)
+                company_href = name_el.get("href", "") if name_el else ""
+                website_url = ""  # Real website requires visiting company page
+
+                seen.add(name.lower())
+                results.append({
+                    "name": name,
+                    "category": business_type,
+                    "website_url": website_url,
+                    "phone": phone,
+                    "address": address,
+                    "city": city,
+                    "country": country,
+                    "source": "yello_ae",
+                })
+
+            # Check if there's a next page
+            next_link = soup.select_one("a[rel='next'], a.pages_arrow[href*='city:']")
+            if not next_link:
+                break
+            page += 1
+            time.sleep(0.5)
+
+        except Exception as exc:
+            emit_fn("warn", f"Yello.ae page {page} error: {exc}")
+            break
+
+    emit_fn("info", f"Yello.ae: extracted {len(results)} listings")
 
     return results
