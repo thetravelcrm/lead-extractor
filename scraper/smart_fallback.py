@@ -17,9 +17,12 @@ Features:
 
 import asyncio
 import re
+import random
 from typing import Dict, List, Optional, Callable
 from urllib.parse import quote_plus, unquote
 
+import requests
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
 
@@ -63,14 +66,20 @@ class SmartFallback:
 
         self.emit_fn("info", f"  🔍 Fallback search for: {company_name}")
 
-        # Try multiple sources in parallel
+        is_india = "india" in country.lower()
+
+        # DuckDuckGo search is first (works on all cloud IPs)
+        # India-specific directories only run for Indian companies
         sources = [
-            ("google", self._search_google),
+            ("ddg", self._search_google),       # Actually DuckDuckGo now
             ("facebook", self._search_facebook),
-            ("sulekha", self._search_sulekha),
-            ("justdial", self._search_justdial),
-            ("indiamart", self._search_indiamart),
         ]
+        if is_india:
+            sources += [
+                ("sulekha", self._search_sulekha),
+                ("justdial", self._search_justdial),
+                ("indiamart", self._search_indiamart),
+            ]
 
         for source_name, search_fn in sources:
             # Stop if we already have emails and website
@@ -103,69 +112,71 @@ class SmartFallback:
         return result
 
     async def _search_google(self, company_name: str, location: str) -> Optional[Dict]:
-        """Search Google for company contact info."""
+        """
+        Search DuckDuckGo (HTML endpoint) for company contact info.
+        Uses requests — no Playwright — so it works on cloud/datacenter IPs
+        where Google blocks headless browsers.
+        """
         result = {"emails": [], "phones": [], "website": ""}
 
+        _JUNK = {"google.com", "facebook.com", "instagram.com", "linkedin.com",
+                 "youtube.com", "justdial.com", "indiamart.com", "sulekha.com",
+                 "tripadvisor.com", "yelp.com", "wikipedia.org", "yello.ae",
+                 "twitter.com", "x.com"}
+
+        from config.settings import USER_AGENTS
+
         search_queries = [
-            f"{company_name} {location} email contact phone",
-            f"{company_name} {location} official website contact",
-            f'"{company_name}" contact email',
+            f"{company_name} {location} email contact",
+            f"{company_name} {location} official website",
         ]
 
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"]
-            )
-            context = await browser.new_context(
-                viewport={"width": 1400, "height": 900},
-                locale="en-US",
-            )
-            page = await context.new_page()
-
-            for query in search_queries:
-                if result["emails"] and result["website"]:
-                    break
-
-                try:
-                    encoded_query = quote_plus(query)
-                    google_url = f"https://www.google.com/search?q={encoded_query}"
-
-                    await page.goto(google_url, wait_until="domcontentloaded", timeout=15000)
-                    await page.wait_for_timeout(2000)
-
-                    # Extract emails from search results
-                    page_text = await page.inner_text("body")
-                    page_text = unquote(page_text)
-
-                    # Find emails
-                    email_pattern = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}')
-                    emails = email_pattern.findall(page_text)
-                    for email in emails:
-                        email = email.lower().strip()
-                        if email not in result["emails"] and self._is_valid_email(email):
-                            result["emails"].append(email)
-
-                    # Find website from first search result
-                    if not result["website"]:
-                        try:
-                            links = await page.locator('div#search a[href*="http"]').all()
-                            for link in links:
-                                href = await link.get_attribute("href")
-                                if href and "google.com" not in href and "google.co.in" not in href:
-                                    clean_url = href.split("?")[0].split("&")[0]
-                                    if len(clean_url) > 10:
-                                        result["website"] = clean_url
-                                        break
-                        except:
-                            pass
-
-                except Exception:
+        for query in search_queries:
+            if result["emails"] and result["website"]:
+                break
+            try:
+                url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+                headers = {
+                    "User-Agent": random.choice(USER_AGENTS),
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                }
+                resp = requests.post(url, headers=headers, timeout=12,
+                                     data={"q": query, "b": "", "kl": "us-en"})
+                if resp.status_code != 200:
                     continue
 
-            await browser.close()
+                soup = BeautifulSoup(resp.text, "html.parser")
+                page_text = soup.get_text(" ", strip=True)
+                page_text = unquote(page_text)
 
-        return result if result["emails"] or result["website"] else None
+                # Extract emails
+                email_pattern = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,7}')
+                for email in email_pattern.findall(page_text):
+                    email = email.lower().strip()
+                    if email not in result["emails"] and self._is_valid_email(email):
+                        result["emails"].append(email)
+
+                # Extract website from first non-junk result link
+                if not result["website"]:
+                    for link in soup.select("a.result__a"):
+                        href = link.get("href", "")
+                        if "uddg=" in href:
+                            try:
+                                href = unquote(href.split("uddg=")[1].split("&")[0])
+                            except Exception:
+                                pass
+                        if href.startswith("http"):
+                            from urllib.parse import urlparse
+                            netloc = urlparse(href).netloc.lower().removeprefix("www.")
+                            if not any(j in netloc for j in _JUNK):
+                                result["website"] = href.split("?")[0]
+                                break
+
+            except Exception:
+                continue
+
+        return result if (result["emails"] or result["website"]) else None
 
     async def _search_justdial(self, company_name: str, location: str) -> Optional[Dict]:
         """Search Justdial for company contact info."""

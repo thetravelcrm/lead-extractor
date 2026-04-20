@@ -66,7 +66,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.38"  # Fallback version
+    APP_VERSION = "V2.39"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -734,6 +734,31 @@ def _run_pipeline(job_id: str, params: dict) -> None:
                         sources = fallback_result.get("sources_used", [])
                         if sources:
                             _emit(job_id, "info", f"  📊 Sources: {', '.join(sources)}")
+
+                        # If fallback found a website, crawl it for emails
+                        if website_url and not emails:
+                            _emit(job_id, "info", f"  🌐 Crawling fallback website {website_url[:50]}...")
+                            try:
+                                loop3 = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop3)
+                                crawl_result = loop3.run_until_complete(
+                                    advanced_crawler.crawl_website(website_url)
+                                )
+                                loop3.close()
+                                if crawl_result:
+                                    email_result = extract_all_emails(
+                                        crawl_result.get("all_html", ""),
+                                        crawl_result.get("all_text", "")
+                                    )
+                                    phone_result = extract_all_phones(
+                                        crawl_result.get("all_html", ""),
+                                        crawl_result.get("all_text", "")
+                                    )
+                                    emails = email_result.get("emails", [])
+                                    if not phones:
+                                        phones = phone_result.get("phones", [])
+                            except Exception as crawl_exc:
+                                _emit(job_id, "warn", f"  Fallback crawl failed: {str(crawl_exc)[:50]}")
 
                 except Exception as exc:
                     _emit(job_id, "warn", f"  Fallback failed: {str(exc)[:60]}")
