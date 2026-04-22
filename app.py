@@ -39,6 +39,8 @@ from scraper.google_search_html import search_google_html
 from scraper.directory_search import search_justdial, search_indiamart, search_sulekha, search_yello_ae
 from scraper.web_search import search_emails_for_company
 from storage.csv_writer import append_lead_csv, write_leads_csv, get_csv_path
+from scraper.nidhi_scraper import scrape_nidhi
+from storage.nidhi_csv import write_nidhi_csv, get_nidhi_csv_path
 from storage.sheets_writer import check_sheets_credentials, append_leads_to_sheet
 from storage.database import (
     init_db, upsert_search, get_search_by_query, get_search_stats,
@@ -66,7 +68,7 @@ try:
     if not APP_VERSION.startswith("V"):
         APP_VERSION = f"V{APP_VERSION}"
 except:
-    APP_VERSION = "V2.39"  # Fallback version
+    APP_VERSION = "V2.40"  # Fallback version
 
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
@@ -1362,6 +1364,72 @@ def _run_data_enrichment(job_id: str, query: str) -> None:
             if job_id in _jobs:
                 _jobs[job_id]["status"] = "error"
         emit(job_id, "error", f"Job failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# NIDHI Portal Extractor
+# ---------------------------------------------------------------------------
+
+def _run_nidhi(job_id: str, category_codes: list) -> None:
+    """Background thread: scrape NIDHI portal and write CSV."""
+    emit_fn = lambda level, msg: _emit(job_id, level, msg)
+    cancelled_fn = lambda: is_cancelled(job_id)
+
+    try:
+        _emit(job_id, "info", f"NIDHI job started — categories: {category_codes}")
+        with _jobs_lock:
+            _jobs[job_id]["status"] = "running"
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        records = loop.run_until_complete(
+            scrape_nidhi(category_codes, emit_fn, concurrency=15,
+                         cancelled_fn=cancelled_fn)
+        )
+        loop.close()
+
+        if records:
+            write_nidhi_csv(records, job_id)
+
+        with _jobs_lock:
+            _jobs[job_id]["status"] = "done"
+            _jobs[job_id]["total"] = len(records)
+
+        msg = (f"NIDHI extraction complete — {len(records)} records saved."
+               if records else "NIDHI: no records found.")
+        _emit(job_id, "done", msg, data={"count": len(records)})
+
+    except Exception as exc:
+        _emit(job_id, "error", f"NIDHI pipeline error: {exc}")
+        with _jobs_lock:
+            if job_id in _jobs:
+                _jobs[job_id]["status"] = "error"
+
+
+@app.route("/nidhi/start", methods=["POST"])
+def nidhi_start():
+    cats = request.form.getlist("categories")
+    if not cats:
+        cats = ["04", "02"]
+
+    job_id = str(uuid.uuid4())
+    create_job_queue(job_id)
+    with _jobs_lock:
+        _jobs[job_id] = {"status": "queued", "total": 0, "params": {"categories": cats}}
+
+    thread = threading.Thread(target=_run_nidhi, args=(job_id, cats), daemon=True)
+    thread.start()
+    return jsonify({"job_id": job_id, "error": None})
+
+
+@app.route("/nidhi/download/<job_id>")
+def nidhi_download(job_id):
+    path = get_nidhi_csv_path(job_id)
+    if not os.path.isfile(path):
+        return jsonify({"error": "File not ready"}), 404
+    return send_file(path, as_attachment=True,
+                     download_name=f"nidhi_{job_id[:8]}.csv",
+                     mimetype="text/csv")
 
 
 # ---------------------------------------------------------------------------
